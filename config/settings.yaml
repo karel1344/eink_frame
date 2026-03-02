@@ -1,0 +1,81 @@
+# E-Ink Photo Frame Configuration
+
+# Display settings
+display:
+  model: "spectra6_7in3"        # spectra6_7in3 / spectra6_13in3
+  orientation: "landscape"       # landscape / portrait
+  rotation: 0                    # 0 / 90 / 180 / 270
+
+# Schedule settings
+schedule:
+  update_time: "06:00"           # 24-hour format (Witty Pi schedule)
+  timezone: "Asia/Seoul"
+
+# Photo source settings
+photo_sources:
+  local:
+    enabled: true
+    path: "photos/local"
+
+  google_photos:
+    enabled: false
+    album_id: ""
+    path: "photos/google"
+
+# Photo selection settings
+photo_selection:
+  mode: "random"                 # sequential / random / date_based
+  avoid_repeats: true            # Avoid repeating recent N photos
+  repeat_threshold: 30           # Number of photos to avoid repeating
+
+# Image processing settings
+image_processing:
+  dithering: "floyd_steinberg"   # floyd_steinberg / atkinson / none
+  auto_rotate: true              # EXIF-based auto rotation
+  fill_mode: "fit"               # fit (letterbox) / fill (crop)
+
+# Battery settings
+battery:
+  low_voltage_threshold: 3.3     # Low voltage warning threshold (V)
+  critical_voltage: 3.0          # Emergency shutdown threshold (V)
+  show_indicator: true           # Show low battery icon
+
+# WiFi settings
+wifi:
+  enabled: true                  # false for offline mode (local photos only)
+  ssid: ""                       # Saved WiFi SSID
+  password: ""                   # Saved WiFi password
+  connection_timeout: 30         # Connection timeout (seconds)
+  retry_count: 3                 # Retry count
+
+# Web UI / AP mode settings
+web_ui:
+  ap_ssid_prefix: "EinkFrame"    # AP SSID prefix (device ID appended)
+  ap_password: ""                # AP password (empty for open)
+  port: 80                       # Web UI port (Captive Portal)
+  timeout: 600                   # Web UI mode auto-shutdown timeout (seconds, 0 for unlimited)
+
+# Physical button settings
+button:
+  gpio_pin: 17                   # GPIO pin number
+  pull_up: true                  # Use pull-up resistor
+  hold_time: 3                   # Long press recognition time (seconds)
+
+# OTA update settings
+ota:
+  enabled: true
+  update_url: "https://api.github.com/repos/USER/eink_frame/releases/latest"
+  auto_check: false              # Auto-check for updates on boot
+  backup_before_update: true     # Create backup before update
+
+# Storage settings
+storage:
+  google_photos_max_mb: 500      # Google Photos download max size
+  local_photos_max_mb: 500       # Local upload max size
+  prefetch_count: 10             # Number of photos to pre-select
+
+# Logging settings
+logging:
+  level: "INFO"                  # DEBUG / INFO / WARNING / ERROR
+  max_files: 5                   # Max log files
+  max_size_mb: 1                 # Max size per log file

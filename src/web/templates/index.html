@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Ink Photo Frame</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 16px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 500;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 16px;
+            background: #34495e;
+            color: #ecf0f1;
+            font-size: 0.85rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: #ecf0f1;
+            padding: 12px 16px;
+            font-weight: 600;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .card-body {
+            padding: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .toggle-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .toggle {
+            position: relative;
+            width: 50px;
+            height: 28px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.3s;
+            border-radius: 28px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background-color: #3498db;
+        }
+
+        .toggle input:checked + .toggle-slider:before {
+            transform: translateX(22px);
+        }
+
+        .wifi-list {
+            list-style: none;
+        }
+
+        .wifi-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .wifi-item:hover {
+            background: #f8f9fa;
+        }
+
+        .wifi-item:last-child {
+            border-bottom: none;
+        }
+
+        .wifi-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+            color: #7f8c8d;
+        }
+
+        .wifi-info {
+            flex: 1;
+        }
+
+        .wifi-name {
+            font-weight: 500;
+        }
+
+        .wifi-signal {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+        }
+
+        .wifi-security {
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            background: #e8e8e8;
+            border-radius: 4px;
+            color: #666;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #219a52;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        .btn-block {
+            display: block;
+            width: 100%;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .btn-group .btn {
+            flex: 1;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 16px;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #7f8c8d;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ddd;
+            border-top-color: #3498db;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 16px;
+            border-bottom: 1px solid #eee;
+            font-weight: 600;
+        }
+
+        .modal-body {
+            padding: 16px;
+        }
+
+        .modal-footer {
+            padding: 16px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #eee;
+            margin-bottom: 16px;
+        }
+
+        .tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>E-Ink Photo Frame</h1>
+    </header>
+
+    <div class="status-bar">
+        <span id="battery-status">Battery: --</span>
+        <span id="connection-status">AP Mode</span>
+    </div>
+
+    <div class="container">
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" data-tab="wifi">WiFi</div>
+            <div class="tab" data-tab="photos">Photos</div>
+            <div class="tab" data-tab="settings">Settings</div>
+        </div>
+
+        <!-- WiFi Tab -->
+        <div id="wifi-tab" class="tab-content active">
+            <div class="card">
+                <div class="card-header">WiFi Settings</div>
+                <div class="card-body">
+                    <div class="form-group toggle-group">
+                        <label>WiFi Enabled</label>
+                        <label class="toggle">
+                            <input type="checkbox" id="wifi-enabled" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div id="wifi-config">
+                        <div class="form-group">
+                            <label>Current Network</label>
+                            <input type="text" id="wifi-ssid" placeholder="Not configured" readonly>
+                        </div>
+
+                        <button class="btn btn-primary btn-block" id="scan-wifi-btn">
+                            Scan WiFi Networks
+                        </button>
+
+                        <div id="wifi-list-container" class="hidden" style="margin-top: 16px;">
+                            <label style="font-weight: 500; margin-bottom: 8px; display: block;">Available Networks</label>
+                            <div id="wifi-loading" class="loading hidden">
+                                <span class="spinner"></span> Scanning...
+                            </div>
+                            <ul id="wifi-list" class="wifi-list"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-danger" id="shutdown-btn">Shutdown</button>
+                <button class="btn btn-success" id="apply-btn">Apply & Connect</button>
+            </div>
+        </div>
+
+        <!-- Photos Tab -->
+        <div id="photos-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">Photo Management</div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        Photo management coming soon...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">Schedule</div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>Update Time</label>
+                        <input type="time" id="update-time" value="06:00">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">Photo Selection</div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>Selection Mode</label>
+                        <select id="selection-mode">
+                            <option value="random">Random</option>
+                            <option value="sequential">Sequential</option>
+                            <option value="date_based">Date Based</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">System Info</div>
+                <div class="card-body">
+                    <p><strong>Version:</strong> <span id="version">0.1.0</span></p>
+                    <p><strong>Last Update:</strong> <span id="last-update">--</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WiFi Password Modal -->
+    <div id="wifi-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">Connect to <span id="modal-ssid"></span></div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="wifi-password" placeholder="Enter WiFi password">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="modal-connect">Connect</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let currentSettings = {};
+        let selectedNetwork = null;
+
+        // DOM Elements
+        const wifiEnabled = document.getElementById('wifi-enabled');
+        const wifiConfig = document.getElementById('wifi-config');
+        const wifiSsid = document.getElementById('wifi-ssid');
+        const scanWifiBtn = document.getElementById('scan-wifi-btn');
+        const wifiListContainer = document.getElementById('wifi-list-container');
+        const wifiLoading = document.getElementById('wifi-loading');
+        const wifiList = document.getElementById('wifi-list');
+        const shutdownBtn = document.getElementById('shutdown-btn');
+        const applyBtn = document.getElementById('apply-btn');
+        const wifiModal = document.getElementById('wifi-modal');
+        const modalSsid = document.getElementById('modal-ssid');
+        const wifiPassword = document.getElementById('wifi-password');
+        const modalCancel = document.getElementById('modal-cancel');
+        const modalConnect = document.getElementById('modal-connect');
+        const batteryStatus = document.getElementById('battery-status');
+        const updateTime = document.getElementById('update-time');
+        const selectionMode = document.getElementById('selection-mode');
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+            });
+        });
+
+        // WiFi toggle
+        wifiEnabled.addEventListener('change', () => {
+            wifiConfig.style.display = wifiEnabled.checked ? 'block' : 'none';
+        });
+
+        // Load settings on page load
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                currentSettings = await response.json();
+
+                // Update UI
+                wifiEnabled.checked = currentSettings.wifi?.enabled ?? true;
+                wifiSsid.value = currentSettings.wifi?.ssid || 'Not configured';
+                wifiConfig.style.display = wifiEnabled.checked ? 'block' : 'none';
+                updateTime.value = currentSettings.schedule?.update_time || '06:00';
+                selectionMode.value = currentSettings.photo_selection?.mode || 'random';
+            } catch (error) {
+                console.error('Failed to load settings:', error);
+            }
+        }
+
+        // Load status
+        async function loadStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const status = await response.json();
+
+                batteryStatus.textContent = `Battery: ${status.battery.percentage}%`;
+            } catch (error) {
+                console.error('Failed to load status:', error);
+            }
+        }
+
+        // Scan WiFi
+        scanWifiBtn.addEventListener('click', async () => {
+            wifiListContainer.classList.remove('hidden');
+            wifiLoading.classList.remove('hidden');
+            wifiList.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/wifi/scan');
+                const networks = await response.json();
+
+                wifiLoading.classList.add('hidden');
+                wifiList.innerHTML = networks.map(network => `
+                    <li class="wifi-item" data-ssid="${network.ssid}" data-security="${network.security}">
+                        <svg class="wifi-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 21l-6-6c1.66-1.66 3.94-2.69 6-2.69s4.34 1.03 6 2.69l-6 6zm-9-9c2.48-2.48 5.89-4.02 9-4.02s6.52 1.54 9 4.02l-2 2c-1.88-1.88-4.47-3.05-7-3.05s-5.12 1.17-7 3.05l-2-2zm-3-3c3.11-3.11 7.39-5.04 12-5.04s8.89 1.93 12 5.04l-2 2c-2.52-2.52-5.99-4.08-10-4.08s-7.48 1.56-10 4.08l-2-2z"/>
+                        </svg>
+                        <div class="wifi-info">
+                            <div class="wifi-name">${network.ssid}</div>
+                            <div class="wifi-signal">Signal: ${network.signal}%</div>
+                        </div>
+                        <span class="wifi-security">${network.security}</span>
+                    </li>
+                `).join('');
+
+                // Add click handlers
+                document.querySelectorAll('.wifi-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        selectedNetwork = {
+                            ssid: item.dataset.ssid,
+                            security: item.dataset.security
+                        };
+
+                        if (selectedNetwork.security === 'open') {
+                            // Open network, connect directly
+                            connectToWifi(selectedNetwork.ssid, '');
+                        } else {
+                            // Show password modal
+                            modalSsid.textContent = selectedNetwork.ssid;
+                            wifiPassword.value = '';
+                            wifiModal.classList.remove('hidden');
+                            wifiPassword.focus();
+                        }
+                    });
+                });
+            } catch (error) {
+                wifiLoading.classList.add('hidden');
+                wifiList.innerHTML = '<li class="wifi-item">Failed to scan networks</li>';
+            }
+        });
+
+        // Modal handlers
+        modalCancel.addEventListener('click', () => {
+            wifiModal.classList.add('hidden');
+        });
+
+        modalConnect.addEventListener('click', () => {
+            if (selectedNetwork) {
+                connectToWifi(selectedNetwork.ssid, wifiPassword.value);
+            }
+        });
+
+        wifiPassword.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                modalConnect.click();
+            }
+        });
+
+        // Connect to WiFi (save settings)
+        async function connectToWifi(ssid, password) {
+            wifiModal.classList.add('hidden');
+            wifiSsid.value = ssid;
+
+            // Update current settings
+            currentSettings.wifi = {
+                ...currentSettings.wifi,
+                ssid: ssid,
+                password: password
+            };
+
+            // Save to server
+            try {
+                await fetch('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wifi: currentSettings.wifi })
+                });
+                alert(`WiFi "${ssid}" configured. Click "Apply & Connect" to connect.`);
+            } catch (error) {
+                alert('Failed to save WiFi settings');
+            }
+        }
+
+        // Shutdown
+        shutdownBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to shutdown?')) {
+                try {
+                    await fetch('/api/system/shutdown', { method: 'POST' });
+                    alert('Shutting down...');
+                } catch (error) {
+                    alert('Failed to shutdown');
+                }
+            }
+        });
+
+        // Apply & Connect
+        applyBtn.addEventListener('click', async () => {
+            // Save all settings first
+            const settings = {
+                wifi: {
+                    enabled: wifiEnabled.checked,
+                    ssid: currentSettings.wifi?.ssid || '',
+                    password: currentSettings.wifi?.password || ''
+                },
+                schedule: {
+                    update_time: updateTime.value
+                },
+                photo_selection: {
+                    mode: selectionMode.value
+                }
+            };
+
+            try {
+                await fetch('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+
+                // Then apply
+                await fetch('/api/system/apply', { method: 'POST' });
+                alert('Applying settings and connecting to WiFi...');
+            } catch (error) {
+                alert('Failed to apply settings');
+            }
+        });
+
+        // Initialize
+        loadSettings();
+        loadStatus();
+    </script>
+</body>
+</html>
