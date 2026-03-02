@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional
 
 from .recovery import RecoveryManager, get_recovery_manager
+from .captive_portal import CaptivePortalDNS, get_captive_dns
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,7 @@ class APModeManager:
         self._start_time: Optional[float] = None
         self._timeout_timer: Optional[threading.Timer] = None
         self._previous_ssid: Optional[str] = None
+        self._dns_server: Optional[Any] = None
 
     def _init_from_config(self) -> None:
         """Initialize settings from config if not provided."""
@@ -355,7 +357,20 @@ class APModeManager:
             self.recovery.clear_recovery_flag()
             return False
 
-        # 5. Start timeout watchdog
+        # 5. Wait for AP IP to be assigned
+        import time as wait_time
+        wait_time.sleep(2)  # Give NetworkManager time to assign IP
+
+        # 6. Kill NetworkManager's dnsmasq and start our DNS server
+        self._start_captive_dns()
+
+        # 7. Setup port forwarding for captive portal (80 → web server port)
+        self._setup_port_forwarding()
+
+        # 8. Open firewall for DNS (UDP 53)
+        self._setup_dns_firewall()
+
+        # 9. Start timeout watchdog
         self._start_timeout_watchdog()
 
         self._active = True
@@ -382,7 +397,13 @@ class APModeManager:
         # 1. Cancel timeout
         self._cancel_timeout_watchdog()
 
-        # 2. Stop hotspot (try both secured and open connection names)
+        # 2. Stop captive portal DNS
+        self._stop_captive_dns()
+
+        # 3. Remove port forwarding
+        self._remove_port_forwarding()
+
+        # 5. Stop hotspot (try both secured and open connection names)
         result = self.executor.run(
             ["nmcli", "connection", "down", "Hotspot"],
             "Stopping secured AP",
@@ -395,7 +416,7 @@ class APModeManager:
             timeout=10,
         )
 
-        # 3. Try to restore previous connection
+        # 6. Try to restore previous connection
         if self._previous_ssid:
             self.executor.run(
                 ["nmcli", "connection", "up", self._previous_ssid],
@@ -403,7 +424,7 @@ class APModeManager:
                 timeout=30,
             )
 
-        # 4. Clear recovery flag
+        # 7. Clear recovery flag
         self.recovery.clear_recovery_flag()
 
         self._active = False
@@ -429,6 +450,159 @@ class APModeManager:
         if self._timeout_timer is not None:
             self._timeout_timer.cancel()
             self._timeout_timer = None
+
+    def _start_captive_dns(self) -> bool:
+        """Configure DNS hijacking for captive portal.
+
+        Starts DNS server on port 5353 and uses nftables to redirect
+        DNS queries (port 53) to our server. This keeps dnsmasq running
+        for DHCP while hijacking DNS.
+
+        Returns:
+            True if configured (or running in non-execution mode).
+        """
+        from ..config import get_config
+
+        config = get_config()
+        if not config.captive_portal_enabled:
+            logger.info("Captive portal DNS disabled in config")
+            return True
+
+        if self.mode in (ExecutionMode.DRY_RUN, ExecutionMode.PREVIEW):
+            logger.info(f"[{self.mode.value.upper()}] Would configure DNS redirect")
+            return True
+
+        # Start our Python DNS server on port 5300 (avoids conflict with dnsmasq and mDNS)
+        from .captive_portal import CaptivePortalDNS
+        self._dns_server = CaptivePortalDNS(ap_ip=self.AP_IP)
+        self._dns_server.DNS_PORT = 5300  # Use non-privileged port (not 5353 which is mDNS)
+        success = self._dns_server.start()
+
+        if success:
+            logger.info("DNS server started on port 5353")
+        else:
+            logger.warning("Failed to start DNS server on port 5353")
+
+        return success
+
+    def _stop_captive_dns(self) -> None:
+        """Stop captive portal DNS server."""
+        if self.mode in (ExecutionMode.DRY_RUN, ExecutionMode.PREVIEW):
+            logger.info(f"[{self.mode.value.upper()}] Would stop captive portal DNS")
+            return
+
+        if self._dns_server:
+            self._dns_server.stop()
+            self._dns_server = None
+
+    def _setup_port_forwarding(self) -> bool:
+        """Setup nftables port forwarding for captive portal.
+
+        Forwards port 80 → 8000 so captive portal works even when
+        web server is running on port 8000 (dynamic AP mode start).
+        """
+        if self.mode in (ExecutionMode.DRY_RUN, ExecutionMode.PREVIEW):
+            logger.info(f"[{self.mode.value.upper()}] Would setup port forwarding 80 → 8000")
+            return True
+
+        # Create dedicated table for einkframe (idempotent)
+        self.executor.run(
+            ["nft", "add", "table", "ip", "einkframe"],
+            "Creating nftables table",
+            timeout=10,
+        )
+
+        # Create prerouting chain for NAT
+        self.executor.run(
+            ["nft", "add", "chain", "ip", "einkframe", "prerouting",
+             "{", "type", "nat", "hook", "prerouting", "priority", "-100", ";", "}"],
+            "Creating prerouting chain",
+            timeout=10,
+        )
+
+        # Flush any existing rules
+        self.executor.run(
+            ["nft", "flush", "chain", "ip", "einkframe", "prerouting"],
+            "Flushing existing rules",
+            timeout=10,
+        )
+
+        # Add redirect rule: port 80 → 8000 on wlan0
+        result = self.executor.run(
+            ["nft", "add", "rule", "ip", "einkframe", "prerouting",
+             "iif", "wlan0", "tcp", "dport", "80", "redirect", "to", ":8000"],
+            "Setting up port 80 → 8000 forwarding on wlan0",
+            timeout=10,
+        )
+
+        if not result.success:
+            logger.warning("Failed to setup HTTP port forwarding")
+
+        # Add DNS redirect rule: UDP port 53 → 5300 on wlan0
+        dns_result = self.executor.run(
+            ["nft", "add", "rule", "ip", "einkframe", "prerouting",
+             "iif", "wlan0", "udp", "dport", "53", "redirect", "to", ":5300"],
+            "Setting up DNS port 53 → 5300 forwarding on wlan0",
+            timeout=10,
+        )
+
+        if dns_result.success:
+            logger.info("DNS redirect configured (53 → 5300)")
+        else:
+            logger.warning("Failed to setup DNS port forwarding")
+
+        return result.success and dns_result.success
+
+    def _remove_port_forwarding(self) -> None:
+        """Remove nftables port forwarding."""
+        if self.mode in (ExecutionMode.DRY_RUN, ExecutionMode.PREVIEW):
+            logger.info(f"[{self.mode.value.upper()}] Would remove port forwarding")
+            return
+
+        # Delete the entire einkframe table (clean removal)
+        self.executor.run(
+            ["nft", "delete", "table", "ip", "einkframe"],
+            "Removing port forwarding table",
+            timeout=10,
+        )
+
+    def _setup_dns_firewall(self) -> bool:
+        """Open firewall for DNS (UDP port 53).
+
+        Returns:
+            True if firewall rules added successfully.
+        """
+        if self.mode in (ExecutionMode.DRY_RUN, ExecutionMode.PREVIEW):
+            logger.info(f"[{self.mode.value.upper()}] Would open firewall for DNS")
+            return True
+
+        # Create input chain if not exists
+        self.executor.run(
+            ["nft", "add", "chain", "ip", "einkframe", "input",
+             "{", "type", "filter", "hook", "input", "priority", "0", ";", "}"],
+            "Creating input chain for firewall",
+            timeout=10,
+        )
+
+        # Allow UDP 5300 (our DNS server)
+        result = self.executor.run(
+            ["nft", "add", "rule", "ip", "einkframe", "input",
+             "udp", "dport", "5300", "accept"],
+            "Allowing DNS (UDP 5300) through firewall",
+            timeout=10,
+        )
+
+        if result.success:
+            logger.info("Firewall opened for DNS (UDP 5300)")
+        else:
+            logger.warning("Failed to open firewall for DNS")
+
+        return result.success
+
+    def _remove_dns_firewall(self) -> None:
+        """Remove DNS firewall rules (handled by removing einkframe table)."""
+        # Firewall rules are in einkframe table, removed with _remove_port_forwarding
+        pass
 
     def _on_timeout_internal(self) -> None:
         """Handle AP mode timeout."""

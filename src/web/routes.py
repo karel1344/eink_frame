@@ -5,12 +5,13 @@ from __future__ import annotations
 from typing import Any, Optional, List, Dict
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from ..config import get_config
 from ..wifi.manager import get_wifi_manager
 from ..wifi.ap_mode import get_ap_manager, APStatus
+from ..wifi.captive_portal import get_captive_dns, CAPTIVE_PORTAL_URLS
 
 router = APIRouter()
 
@@ -420,6 +421,174 @@ async def system_apply(request: ApplyRequest | None = None) -> ApiResponse:
         success=True,
         message=f"Connecting to {ssid}... AP mode will stop shortly.",
     )
+
+
+# ============================================================================
+# Captive Portal Detection Routes
+# ============================================================================
+
+
+@router.get("/captive")
+async def captive_portal_page(request: Request):
+    """Simple captive portal landing page.
+
+    Directs users to open the full UI in their browser.
+    """
+    from .app import get_templates
+
+    templates = get_templates()
+    return templates.TemplateResponse("captive.html", {"request": request})
+
+
+async def _get_captive_html(request: Request):
+    """Return captive portal HTML directly (no redirect)."""
+    from .app import get_templates
+
+    templates = get_templates()
+    return templates.TemplateResponse("captive.html", {"request": request})
+
+
+@router.get("/generate_204")
+@router.get("/gen_204")
+async def captive_portal_android(request: Request):
+    """Android captive portal detection.
+
+    Android expects 204 for internet, non-204 triggers portal popup.
+    """
+    ap = get_ap_manager()
+    if ap.is_active:
+        # Return HTML directly with 200 (not 204) to trigger portal
+        return await _get_captive_html(request)
+    return PlainTextResponse("", status_code=204)
+
+
+@router.get("/hotspot-detect.html")
+@router.get("/library/test/success.html")
+async def captive_portal_apple(request: Request):
+    """iOS/macOS captive portal detection.
+
+    Apple expects "Success" text for internet, anything else triggers portal.
+    """
+    ap = get_ap_manager()
+    if ap.is_active:
+        # Return HTML directly (not "Success") to trigger portal
+        return await _get_captive_html(request)
+    return PlainTextResponse("Success", status_code=200)
+
+
+@router.get("/ncsi.txt")
+async def captive_portal_windows(request: Request):
+    """Windows NCSI captive portal detection."""
+    ap = get_ap_manager()
+    if ap.is_active:
+        return await _get_captive_html(request)
+    return PlainTextResponse("Microsoft NCSI", status_code=200)
+
+
+@router.get("/connecttest.txt")
+async def captive_portal_windows_connect(request: Request):
+    """Windows connectivity test."""
+    ap = get_ap_manager()
+    if ap.is_active:
+        return await _get_captive_html(request)
+    return PlainTextResponse("Microsoft Connect Test", status_code=200)
+
+
+@router.get("/success.txt")
+async def captive_portal_firefox(request: Request):
+    """Firefox captive portal detection."""
+    ap = get_ap_manager()
+    if ap.is_active:
+        return await _get_captive_html(request)
+    return PlainTextResponse("success\n", status_code=200)
+
+
+@router.get("/api/captive/status")
+async def captive_dns_status() -> dict[str, Any]:
+    """Get captive portal DNS server status."""
+    dns = get_captive_dns()
+    return {
+        "dns_running": dns.is_running,
+        "ap_ip": dns._ap_ip,
+    }
+
+
+@router.post("/api/captive/start")
+async def start_captive_dns() -> ApiResponse:
+    """Start captive portal DNS server (requires root)."""
+    dns = get_captive_dns()
+    if dns.is_running:
+        return ApiResponse(success=True, message="DNS server already running")
+
+    success = dns.start()
+    if success:
+        return ApiResponse(success=True, message="Captive portal DNS started")
+    return ApiResponse(success=False, message="Failed to start DNS (requires root)")
+
+
+@router.post("/api/captive/stop")
+async def stop_captive_dns() -> ApiResponse:
+    """Stop captive portal DNS server."""
+    dns = get_captive_dns()
+    dns.stop()
+    return ApiResponse(success=True, message="Captive portal DNS stopped")
+
+
+@router.get("/api/captive/test")
+async def test_captive_dns() -> dict[str, Any]:
+    """Test captive portal DNS server by sending a query.
+
+    This helps debug DNS issues by testing locally.
+    """
+    import socket
+    import struct
+
+    dns = get_captive_dns()
+    ap_ip = dns._ap_ip
+
+    # Build a simple DNS query for google.com
+    transaction_id = b"\x00\x01"
+    flags = b"\x01\x00"  # Standard query
+    counts = struct.pack("!HHHH", 1, 0, 0, 0)  # 1 question
+    # google.com as DNS labels
+    domain = b"\x06google\x03com\x00"
+    qtype_qclass = struct.pack("!HH", 1, 1)  # A record, IN class
+    query = transaction_id + flags + counts + domain + qtype_qclass
+
+    result = {
+        "dns_running": dns.is_running,
+        "ap_ip": ap_ip,
+        "query_sent": False,
+        "response_received": False,
+        "response_ip": None,
+        "error": None,
+    }
+
+    if not dns.is_running:
+        result["error"] = "DNS server not running"
+        return result
+
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(3.0)
+        sock.sendto(query, (ap_ip, 53))
+        result["query_sent"] = True
+
+        response, _ = sock.recvfrom(512)
+        result["response_received"] = True
+
+        # Extract IP from response (last 4 bytes)
+        if len(response) >= 4:
+            ip_bytes = response[-4:]
+            result["response_ip"] = ".".join(str(b) for b in ip_bytes)
+
+        sock.close()
+    except socket.timeout:
+        result["error"] = "DNS timeout - no response received"
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
 
 
 # ============================================================================

@@ -1,12 +1,15 @@
 """FastAPI web application for E-Ink Photo Frame."""
 
+import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .routes import router
+
+logger = logging.getLogger(__name__)
 
 # Paths
 BASE_DIR = Path(__file__).parent
@@ -26,6 +29,16 @@ if STATIC_DIR.exists():
 
 # Templates
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+# Middleware to log ALL requests (for captive portal debugging)
+@app.middleware("http")
+async def log_all_requests(request: Request, call_next):
+    """Log all incoming HTTP requests with full details."""
+    host = request.headers.get("host", "unknown")
+    logger.info(f"HTTP Request: {request.method} {request.url.path} (Host: {host}, Client: {request.client.host if request.client else 'unknown'})")
+    response = await call_next(request)
+    return response
+
 
 # Include API routes
 app.include_router(router)

@@ -1,0 +1,375 @@
+# E-Ink Photo Frame 구현 계획
+
+## 현재 상태 요약
+
+| 카테고리 | 구현율 |
+|----------|--------|
+| 인프라/설정 | 90% |
+| WiFi/AP 모드 | 80% |
+| 웹 UI | 40% |
+| 사진 관리 | 0% |
+| 이미지 처리 | 0% |
+| 디스플레이 | 0% |
+| 전원 관리 | 0% |
+| 상태머신 | 0% |
+| OTA 업데이트 | 0% |
+| 에셋/스크립트 | 0% |
+| 저장소/로깅 | 0% |
+
+---
+
+## Phase 1: 인프라 (Infrastructure) - 90% 완료
+
+### 완료 ✅
+
+- [x] **config.py** - 설정 파일 관리
+  - YAML 설정 로드/저장
+  - 기본값 처리
+  - 프로퍼티 접근자
+
+- [x] **main.py** - 진입점
+  - 개발/프로덕션 모드 분기
+  - uvicorn 웹서버 실행
+
+- [x] **startup.py** - 시작 시퀀스
+  - WiFi 연결 시도
+  - AP 모드 폴백
+  - 복구 플래그 체크
+
+- [x] **wifi/recovery.py** - 복구 관리자
+  - 복구 플래그 파일 관리
+  - AP 모드 크래시 복구
+
+### 미완료 ❌
+
+- [ ] **database.py** - SQLite DB 관리
+  - WAL 모드 설정
+  - 동시성 처리 (timeout=10, check_same_thread=False)
+  - 마이그레이션
+  - 사진 메타데이터 테이블
+  - `last_displayed_photo` 저장
+  - `last_sync_token` 저장
+  - 최근 선택 사진 이력 테이블 (반복 방지용)
+
+---
+
+## Phase 2: WiFi & AP 모드 - 80% 완료
+
+### 완료 ✅
+
+- [x] **wifi/manager.py** - WiFi 연결 관리
+  - nmcli 기반 연결/해제
+  - 네트워크 스캔
+  - 연결 상태 확인
+
+- [x] **wifi/ap_mode.py** - AP 모드 매니저
+  - NetworkManager hotspot 사용
+  - ExecutionMode (DRY_RUN/PREVIEW/SAFE/NORMAL)
+  - 타임아웃 워치독
+  - nftables 포트 포워딩 (80→8000, 53→5300)
+  - 복구 플래그 연동
+
+- [x] **wifi/captive_portal.py** - DNS 서버
+  - UDP DNS 서버
+  - A 레코드 응답 (모든 도메인 → AP IP)
+  - AAAA 쿼리 빈 응답
+
+- [x] **button.py** - 물리 버튼 핸들러
+  - gpiozero 기반 GPIO 입력
+  - 짧은 누름/길게 누름 콜백
+  - 시뮬레이션 메서드
+
+### 미완료 ❌
+
+- [ ] **Captive Portal 팝업** (iOS/Android)
+  - DNS 하이재킹은 동작하지만 자동 팝업이 안 뜸
+  - 수동으로 10.42.0.1 접속은 가능
+  - 우선순위: 낮음 (수동 접속으로 대체 가능)
+
+---
+
+## Phase 3: 웹 UI - 40% 완료
+
+### 완료 ✅
+
+- [x] **web/app.py** - FastAPI 앱
+  - 라우터 마운트
+  - 정적 파일 서빙
+  - 템플릿 설정
+
+- [x] **web/routes.py** - API 라우트
+  - `GET /api/status` - 시스템 상태 (스텁)
+  - `GET /api/settings` - 설정 조회
+  - `PUT /api/settings` - 설정 변경
+  - `GET /api/wifi/scan` - WiFi 스캔
+  - `GET /api/wifi/status` - WiFi 상태
+  - `POST /api/wifi/connect` - WiFi 연결
+  - `GET /api/ap/status` - AP 상태
+  - `POST /api/ap/start` - AP 시작
+  - `POST /api/ap/stop` - AP 중지
+  - `POST /api/system/apply` - 설정 적용 후 WiFi 연결
+  - `POST /api/system/shutdown` - 종료 (스텁)
+  - Captive portal 감지 URL 응답
+
+- [x] **web/templates/index.html** - 메인 UI
+  - WiFi 설정 폼
+  - 네트워크 목록 표시
+
+- [x] **web/templates/captive.html** - 캡티브 포털 랜딩
+  - AP 접속 안내
+  - 10.42.0.1 링크
+
+### 미완료 ❌
+
+- [ ] **사진 갤러리 UI**
+  - 로컬 사진 목록 (썸네일)
+  - 사진 업로드 (드래그앤드롭)
+  - 사진 삭제
+  - 업로드 파일 크기 제한 (20MB)
+  - 스트리밍 업로드 (메모리 최적화)
+    - 디스크에 먼저 저장, 청크 단위 처리
+  - 원본 보존 옵션
+
+- [ ] **Google Photos 연동 UI**
+  - OAuth 인증 플로우
+  - 앨범 선택
+
+- [ ] **시스템 설정 UI**
+  - 업데이트 시간 설정
+  - 사진 선택 모드 설정
+  - 디스플레이 설정 (orientation, rotation)
+  - 오프라인 모드 설정 (WiFi ON/OFF 토글)
+
+- [ ] **OTA 업데이트 UI**
+  - 버전 확인
+  - 업데이트 설치
+
+- [ ] **API 엔드포인트**
+  - `GET /api/photos` - 사진 목록
+  - `GET /api/photos/{id}` - 개별 사진 정보
+  - `POST /api/photos/upload` - 사진 업로드
+  - `DELETE /api/photos/{id}` - 사진 삭제
+  - `GET /api/photos/{id}/thumbnail` - 썸네일
+  - `POST /api/refresh` - 수동 사진 업데이트
+  - `GET /api/google/auth` - Google 인증
+  - `POST /api/google/callback` - OAuth 콜백
+  - `GET /api/update/check` - 업데이트 확인
+  - `POST /api/update/install` - 업데이트 설치
+  - `GET /api/update/version` - 현재 버전 정보
+
+---
+
+## Phase 4: 사진 소스 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **photo_source/base.py** - 추상 기본 클래스
+  - PhotoSource 인터페이스
+  - Photo 데이터 클래스
+
+- [ ] **photo_source/local.py** - 로컬 파일시스템
+  - photos/local/ 디렉토리 관리
+  - 썸네일 생성 (.thumbnails/, 200x200)
+  - 파일 업로드 처리
+  - 지원 포맷: JPEG, PNG, HEIC
+
+- [ ] **photo_source/google_photos.py** - Google Photos API
+  - OAuth 2.0 인증
+  - 앨범 메타데이터 동기화 (Delta Sync)
+    - last_sync_token 관리
+    - 증분 동기화 API 호출
+  - 사진 다운로드
+  - 용량 관리 (LRU 알고리즘 구현)
+  - 삭제 여부 트래킹 (재다운로드 가능)
+  - 다운로드 실패 시 로컬 사진 폴백
+
+- [ ] **사진 선택 로직**
+  - 순차/랜덤/날짜 기반 선택
+  - 반복 방지 (최근 N장, 기본 30장)
+  - 로컬 + Google 통합 선택
+
+---
+
+## Phase 5: 이미지 처리 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **image_processor.py** - 이미지 처리
+  - 디스플레이 해상도 리사이즈
+  - 6색 팔레트 디더링 (Floyd-Steinberg)
+  - EXIF 기반 자동 회전
+  - fit/fill 모드
+  - 배터리 아이콘 오버레이 (우측 상단)
+    - 상태별 아이콘: 충분/낮음(3.3V)/긴급(3.0V)
+  - 청크 단위 이미지 처리 (메모리 최적화)
+
+---
+
+## Phase 6: 디스플레이 드라이버 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **display/base.py** - 추상 기본 클래스
+  - Display 인터페이스
+  - 해상도, 색상 정보
+
+- [ ] **display/spectra6_7in3.py** - 7.3" 드라이버
+  - SPI 통신
+  - 초기화 시퀀스
+  - 이미지 전송
+  - 새로고침
+
+- [ ] **display/spectra6_13in3.py** - 13.3" 드라이버
+  - 7.3" 드라이버 상속
+  - 해상도 변경
+
+---
+
+## Phase 7: 전원 관리 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **power_manager.py** - Witty Pi 연동
+  - I2C 통신 (주소 0x69, 배터리 레지스터)
+  - 배터리 전압 읽기
+    - 저전압 임계값: 3.3V (경고)
+    - 긴급 종료 임계값: 3.0V
+  - 다음 부팅 스케줄 설정 (schedule.update_time 사용)
+  - Graceful Shutdown 시퀀스
+    - Witty Pi 스케줄 설정 → systemctl poweroff
+
+---
+
+## Phase 8: 상태머신 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **state_machine.py** - 상태머신 구현
+  - States: INIT, WIFI_CONNECT, AP_MODE, PHOTO_UPDATE, SCHEDULE, SHUTDOWN, ERROR
+  - Events: INIT_COMPLETE, BUTTON_PRESSED, WIFI_SUCCESS, WIFI_FAIL, etc.
+  - 이벤트 큐 (thread-safe queue.Queue)
+  - 상태 전이 로직
+  - 스레드 아키텍처: 메인 스레드(상태머신) + 웹 스레드(FastAPI)
+  - INIT 내부 단계: 하드웨어 초기화 → 설정 로드 → 배터리 확인 → DB 연결 → 오프라인 모드 확인
+  - AP 모드 버튼 재누름 감지 (AP_BUTTON_EXIT 이벤트)
+  - AP 모드 타임아웃 워치독 (web_ui.timeout 설정값 사용)
+  - AP 모드 종료 시 이전 사진 복원/디폴트 이미지 표시 로직
+  - Watchdog 타이머 (무한루프 방지, systemd watchdog 또는 별도 타이머)
+  - 메모리 관리: AP 모드 종료 후 이미지 처리 시작 (동시 실행 방지)
+
+- [ ] **status_display.py** - E-ink 상태 표시
+  - AP 모드 안내 화면 (SSID, IP, 접속 방법 텍스트)
+  - 에러 메시지 표시
+    - 에러 타입별: 네트워크 오류, Google API 오류, 저장소 부족 등
+  - 배터리 부족 표시
+  - 업데이트 완료 표시 (선택)
+  - 디폴트 이미지 로드 및 표시 로직
+
+---
+
+## Phase 9: OTA 업데이트 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **ota/version.py** - 버전 관리
+  - 현재 버전 읽기
+  - 버전 비교
+
+- [ ] **ota/updater.py** - 업데이트 다운로드/설치
+  - GitHub Release API
+  - 다운로드 및 설치
+  - 롤백 기능
+    - 백업 대상: src/, config/ 등
+    - 롤백 프로세스 정의
+  - 부팅 시 자동 확인 옵션 (auto_check)
+  - 업데이트 전 백업 (backup_before_update)
+
+---
+
+## Phase 10: 에셋 및 스크립트 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **assets/default.png** - 종료 시 표시할 디폴트 이미지
+- [ ] **assets/icons/** - 배터리 아이콘 등
+- [ ] **scripts/install.sh** - 설치 스크립트
+  - 256MB swap 설정 (메모리 안전망)
+- [ ] **scripts/wittypi_schedule.sh** - Witty Pi 스케줄 설정
+
+---
+
+## Phase 11: 저장소 및 로깅 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] **저장소 용량 관리**
+  - Google Photos 최대 용량 제한 (기본 500MB)
+  - 로컬 업로드 최대 용량 제한 (기본 500MB)
+  - 용량 초과 시 LRU 삭제
+  - 미리 선정할 사진 수 (prefetch_count)
+
+- [ ] **로그 로테이션**
+  - 로그 파일 위치: logs/einkframe.log
+  - 최대 5개 파일, 각 1MB
+  - Python logging.handlers.RotatingFileHandler 사용
+
+---
+
+## Phase 12: 통합 및 테스트 - 0% 완료
+
+### 미완료 ❌
+
+- [ ] 전체 부팅 시퀀스 테스트
+- [ ] AP 모드 → WiFi 전환 테스트
+- [ ] 사진 업데이트 플로우 테스트
+- [ ] 배터리 부족 시나리오 테스트
+- [ ] 에러 복구 테스트
+- [ ] OTA 업데이트 테스트
+
+---
+
+## 우선순위 제안
+
+### 높음 (핵심 기능)
+1. **database.py** - 상태 저장 필수
+2. **display/spectra6_7in3.py** - E-ink 출력 필수
+3. **image_processor.py** - 이미지 변환 필수
+4. **photo_source/local.py** - 기본 사진 소스
+5. **state_machine.py** - 전체 흐름 제어
+
+### 중간 (완성도)
+6. **power_manager.py** - Witty Pi 연동
+7. **사진 갤러리 UI** - 웹에서 사진 관리
+8. **photo_source/google_photos.py** - Google Photos
+9. **status_display.py** - E-ink 상태 표시
+
+### 낮음 (선택)
+10. **OTA 업데이트** - 나중에 추가 가능
+11. **Captive Portal 팝업 수정** - 수동 접속으로 대체 가능
+12. **설치 스크립트** - 수동 설치로 대체 가능
+13. **로그 로테이션** - 초기에는 수동 관리 가능
+
+---
+
+## 현재 작업 가능한 것
+
+Pi 없이 Mac에서 개발/테스트 가능:
+- database.py
+- image_processor.py
+- photo_source/local.py
+- photo_source/google_photos.py
+- 웹 UI (갤러리, 설정)
+- state_machine.py (DRY_RUN 모드)
+- 저장소 용량 관리 로직
+- 로그 로테이션 설정
+- OTA 버전 비교 로직
+
+Pi 필요:
+- display 드라이버
+- power_manager.py
+- Witty Pi 스케줄 스크립트
+- 전체 통합 테스트
+
+---
+
+*마지막 업데이트: 2026-03-03 (최종 검토 완료 - 3회 반복)*

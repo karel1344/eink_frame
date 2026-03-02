@@ -287,27 +287,34 @@
             display: none !important;
         }
 
-        /* Modal */
+        .visible {
+            display: block !important;
+        }
+
+        /* Modal - inline style for captive portal compatibility */
         .modal-overlay {
+            display: none;
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
             background: rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
             z-index: 1000;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .modal-overlay.visible {
+            display: block;
         }
 
         .modal {
             background: white;
             border-radius: 8px;
-            width: 90%;
+            width: 100%;
             max-width: 400px;
-            max-height: 90vh;
-            overflow-y: auto;
+            margin: 20px auto;
         }
 
         .modal-header {
@@ -326,6 +333,30 @@
             display: flex;
             gap: 8px;
             justify-content: flex-end;
+        }
+
+        /* Inline password form (captive portal fallback) */
+        .wifi-password-inline {
+            display: none;
+            padding: 12px;
+            background: #f8f9fa;
+            border-top: 1px solid #eee;
+        }
+
+        .wifi-password-inline.visible {
+            display: block;
+        }
+
+        .wifi-password-inline input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .wifi-item.selected {
+            background: #e3f2fd;
         }
 
         /* Tabs */
@@ -465,8 +496,8 @@
         </div>
     </div>
 
-    <!-- WiFi Password Modal -->
-    <div id="wifi-modal" class="modal-overlay hidden">
+    <!-- WiFi Password Modal (fallback for full browsers) -->
+    <div id="wifi-modal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">Connect to <span id="modal-ssid"></span></div>
             <div class="modal-body">
@@ -476,7 +507,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn" id="modal-cancel">Cancel</button>
+                <button class="btn" id="modal-cancel" onclick="closeModal()">Cancel</button>
                 <button class="btn btn-primary" id="modal-connect">Connect</button>
             </div>
         </div>
@@ -484,211 +515,233 @@
 
     <script>
         // State
-        let currentSettings = {};
-        let selectedNetwork = null;
+        var currentSettings = {};
+        var selectedNetwork = null;
 
-        // DOM Elements
-        const wifiEnabled = document.getElementById('wifi-enabled');
-        const wifiConfig = document.getElementById('wifi-config');
-        const wifiSsid = document.getElementById('wifi-ssid');
-        const scanWifiBtn = document.getElementById('scan-wifi-btn');
-        const wifiListContainer = document.getElementById('wifi-list-container');
-        const wifiLoading = document.getElementById('wifi-loading');
-        const wifiList = document.getElementById('wifi-list');
-        const shutdownBtn = document.getElementById('shutdown-btn');
-        const applyBtn = document.getElementById('apply-btn');
-        const wifiModal = document.getElementById('wifi-modal');
-        const modalSsid = document.getElementById('modal-ssid');
-        const wifiPassword = document.getElementById('wifi-password');
-        const modalCancel = document.getElementById('modal-cancel');
-        const modalConnect = document.getElementById('modal-connect');
-        const batteryStatus = document.getElementById('battery-status');
-        const updateTime = document.getElementById('update-time');
-        const selectionMode = document.getElementById('selection-mode');
+        // Close modal function (for onclick)
+        function closeModal() {
+            var modal = document.getElementById('wifi-modal');
+            if (modal) modal.classList.remove('visible');
+        }
 
-        // Tab switching
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
-            });
-        });
-
-        // WiFi toggle
-        wifiEnabled.addEventListener('change', () => {
-            wifiConfig.style.display = wifiEnabled.checked ? 'block' : 'none';
-        });
-
-        // Load settings on page load
-        async function loadSettings() {
-            try {
-                const response = await fetch('/api/settings');
-                currentSettings = await response.json();
-
-                // Update UI
-                wifiEnabled.checked = currentSettings.wifi?.enabled ?? true;
-                wifiSsid.value = currentSettings.wifi?.ssid || 'Not configured';
-                wifiConfig.style.display = wifiEnabled.checked ? 'block' : 'none';
-                updateTime.value = currentSettings.schedule?.update_time || '06:00';
-                selectionMode.value = currentSettings.photo_selection?.mode || 'random';
-            } catch (error) {
-                console.error('Failed to load settings:', error);
+        // Show modal function
+        function showModal(ssid) {
+            var modal = document.getElementById('wifi-modal');
+            var modalSsid = document.getElementById('modal-ssid');
+            var wifiPassword = document.getElementById('wifi-password');
+            if (modal && modalSsid) {
+                modalSsid.textContent = ssid;
+                if (wifiPassword) wifiPassword.value = '';
+                modal.classList.add('visible');
+                // Try to focus, may not work in captive portal
+                try { if (wifiPassword) wifiPassword.focus(); } catch(e) {}
             }
         }
 
-        // Load status
-        async function loadStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const status = await response.json();
+        // Select WiFi network
+        function selectWifi(ssid, security) {
+            selectedNetwork = { ssid: ssid, security: security };
 
-                batteryStatus.textContent = `Battery: ${status.battery.percentage}%`;
-            } catch (error) {
-                console.error('Failed to load status:', error);
+            // Highlight selected item
+            var items = document.querySelectorAll('.wifi-item');
+            for (var i = 0; i < items.length; i++) {
+                items[i].classList.remove('selected');
+                if (items[i].getAttribute('data-ssid') === ssid) {
+                    items[i].classList.add('selected');
+                }
+            }
+
+            if (security === 'open') {
+                connectToWifi(ssid, '');
+            } else {
+                showModal(ssid);
             }
         }
-
-        // Scan WiFi
-        scanWifiBtn.addEventListener('click', async () => {
-            wifiListContainer.classList.remove('hidden');
-            wifiLoading.classList.remove('hidden');
-            wifiList.innerHTML = '';
-
-            try {
-                const response = await fetch('/api/wifi/scan');
-                const networks = await response.json();
-
-                wifiLoading.classList.add('hidden');
-                wifiList.innerHTML = networks.map(network => `
-                    <li class="wifi-item" data-ssid="${network.ssid}" data-security="${network.security}">
-                        <svg class="wifi-icon" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 21l-6-6c1.66-1.66 3.94-2.69 6-2.69s4.34 1.03 6 2.69l-6 6zm-9-9c2.48-2.48 5.89-4.02 9-4.02s6.52 1.54 9 4.02l-2 2c-1.88-1.88-4.47-3.05-7-3.05s-5.12 1.17-7 3.05l-2-2zm-3-3c3.11-3.11 7.39-5.04 12-5.04s8.89 1.93 12 5.04l-2 2c-2.52-2.52-5.99-4.08-10-4.08s-7.48 1.56-10 4.08l-2-2z"/>
-                        </svg>
-                        <div class="wifi-info">
-                            <div class="wifi-name">${network.ssid}</div>
-                            <div class="wifi-signal">Signal: ${network.signal}%</div>
-                        </div>
-                        <span class="wifi-security">${network.security}</span>
-                    </li>
-                `).join('');
-
-                // Add click handlers
-                document.querySelectorAll('.wifi-item').forEach(item => {
-                    item.addEventListener('click', () => {
-                        selectedNetwork = {
-                            ssid: item.dataset.ssid,
-                            security: item.dataset.security
-                        };
-
-                        if (selectedNetwork.security === 'open') {
-                            // Open network, connect directly
-                            connectToWifi(selectedNetwork.ssid, '');
-                        } else {
-                            // Show password modal
-                            modalSsid.textContent = selectedNetwork.ssid;
-                            wifiPassword.value = '';
-                            wifiModal.classList.remove('hidden');
-                            wifiPassword.focus();
-                        }
-                    });
-                });
-            } catch (error) {
-                wifiLoading.classList.add('hidden');
-                wifiList.innerHTML = '<li class="wifi-item">Failed to scan networks</li>';
-            }
-        });
-
-        // Modal handlers
-        modalCancel.addEventListener('click', () => {
-            wifiModal.classList.add('hidden');
-        });
-
-        modalConnect.addEventListener('click', () => {
-            if (selectedNetwork) {
-                connectToWifi(selectedNetwork.ssid, wifiPassword.value);
-            }
-        });
-
-        wifiPassword.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                modalConnect.click();
-            }
-        });
 
         // Connect to WiFi (save settings)
-        async function connectToWifi(ssid, password) {
-            wifiModal.classList.add('hidden');
-            wifiSsid.value = ssid;
+        function connectToWifi(ssid, password) {
+            closeModal();
+            var wifiSsid = document.getElementById('wifi-ssid');
+            if (wifiSsid) wifiSsid.value = ssid;
 
-            // Update current settings
             currentSettings.wifi = {
-                ...currentSettings.wifi,
+                enabled: true,
                 ssid: ssid,
                 password: password
             };
 
             // Save to server
-            try {
-                await fetch('/api/settings', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ wifi: currentSettings.wifi })
-                });
-                alert(`WiFi "${ssid}" configured. Click "Apply & Connect" to connect.`);
-            } catch (error) {
+            fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ wifi: currentSettings.wifi })
+            }).then(function(response) {
+                if (response.ok) {
+                    alert('WiFi "' + ssid + '" configured.\nClick "Apply & Connect" to connect.');
+                } else {
+                    alert('Failed to save WiFi settings');
+                }
+            }).catch(function(error) {
                 alert('Failed to save WiFi settings');
-            }
+            });
         }
 
-        // Shutdown
-        shutdownBtn.addEventListener('click', async () => {
-            if (confirm('Are you sure you want to shutdown?')) {
-                try {
-                    await fetch('/api/system/shutdown', { method: 'POST' });
-                    alert('Shutting down...');
-                } catch (error) {
-                    alert('Failed to shutdown');
-                }
-            }
-        });
+        // DOM Ready
+        document.addEventListener('DOMContentLoaded', function() {
+            var wifiEnabled = document.getElementById('wifi-enabled');
+            var wifiConfig = document.getElementById('wifi-config');
+            var wifiSsid = document.getElementById('wifi-ssid');
+            var scanWifiBtn = document.getElementById('scan-wifi-btn');
+            var wifiListContainer = document.getElementById('wifi-list-container');
+            var wifiLoading = document.getElementById('wifi-loading');
+            var wifiList = document.getElementById('wifi-list');
+            var shutdownBtn = document.getElementById('shutdown-btn');
+            var applyBtn = document.getElementById('apply-btn');
+            var modalConnect = document.getElementById('modal-connect');
+            var wifiPassword = document.getElementById('wifi-password');
+            var batteryStatus = document.getElementById('battery-status');
+            var updateTime = document.getElementById('update-time');
+            var selectionMode = document.getElementById('selection-mode');
 
-        // Apply & Connect
-        applyBtn.addEventListener('click', async () => {
-            // Save all settings first
-            const settings = {
-                wifi: {
-                    enabled: wifiEnabled.checked,
-                    ssid: currentSettings.wifi?.ssid || '',
-                    password: currentSettings.wifi?.password || ''
-                },
-                schedule: {
-                    update_time: updateTime.value
-                },
-                photo_selection: {
-                    mode: selectionMode.value
-                }
-            };
-
-            try {
-                await fetch('/api/settings', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(settings)
+            // Tab switching
+            var tabs = document.querySelectorAll('.tab');
+            for (var i = 0; i < tabs.length; i++) {
+                tabs[i].addEventListener('click', function() {
+                    var allTabs = document.querySelectorAll('.tab');
+                    var allContents = document.querySelectorAll('.tab-content');
+                    for (var j = 0; j < allTabs.length; j++) {
+                        allTabs[j].classList.remove('active');
+                    }
+                    for (var k = 0; k < allContents.length; k++) {
+                        allContents[k].classList.remove('active');
+                    }
+                    this.classList.add('active');
+                    var tabContent = document.getElementById(this.getAttribute('data-tab') + '-tab');
+                    if (tabContent) tabContent.classList.add('active');
                 });
+            }
 
-                // Then apply
-                await fetch('/api/system/apply', { method: 'POST' });
-                alert('Applying settings and connecting to WiFi...');
-            } catch (error) {
-                alert('Failed to apply settings');
+            // WiFi toggle
+            if (wifiEnabled) {
+                wifiEnabled.addEventListener('change', function() {
+                    if (wifiConfig) wifiConfig.style.display = wifiEnabled.checked ? 'block' : 'none';
+                });
+            }
+
+            // Load settings
+            fetch('/api/settings').then(function(response) {
+                return response.json();
+            }).then(function(settings) {
+                currentSettings = settings;
+                if (wifiEnabled) wifiEnabled.checked = settings.wifi && settings.wifi.enabled !== false;
+                if (wifiSsid) wifiSsid.value = (settings.wifi && settings.wifi.ssid) || 'Not configured';
+                if (wifiConfig) wifiConfig.style.display = (wifiEnabled && wifiEnabled.checked) ? 'block' : 'none';
+                if (updateTime && settings.schedule) updateTime.value = settings.schedule.update_time || '06:00';
+                if (selectionMode && settings.photo_selection) selectionMode.value = settings.photo_selection.mode || 'random';
+            }).catch(function(error) {
+                console.error('Failed to load settings:', error);
+            });
+
+            // Load status
+            fetch('/api/status').then(function(response) {
+                return response.json();
+            }).then(function(status) {
+                if (batteryStatus) batteryStatus.textContent = 'Battery: ' + status.battery.percentage + '%';
+            }).catch(function(error) {
+                console.error('Failed to load status:', error);
+            });
+
+            // Scan WiFi
+            if (scanWifiBtn) {
+                scanWifiBtn.addEventListener('click', function() {
+                    if (wifiListContainer) wifiListContainer.classList.remove('hidden');
+                    if (wifiLoading) wifiLoading.classList.remove('hidden');
+                    if (wifiList) wifiList.innerHTML = '';
+
+                    fetch('/api/wifi/scan').then(function(response) {
+                        return response.json();
+                    }).then(function(networks) {
+                        if (wifiLoading) wifiLoading.classList.add('hidden');
+
+                        var html = '';
+                        for (var i = 0; i < networks.length; i++) {
+                            var n = networks[i];
+                            html += '<li class="wifi-item" data-ssid="' + n.ssid + '" data-security="' + n.security + '" onclick="selectWifi(\'' + n.ssid.replace(/'/g, "\\'") + '\', \'' + n.security + '\')">';
+                            html += '<svg class="wifi-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21l-6-6c1.66-1.66 3.94-2.69 6-2.69s4.34 1.03 6 2.69l-6 6zm-9-9c2.48-2.48 5.89-4.02 9-4.02s6.52 1.54 9 4.02l-2 2c-1.88-1.88-4.47-3.05-7-3.05s-5.12 1.17-7 3.05l-2-2zm-3-3c3.11-3.11 7.39-5.04 12-5.04s8.89 1.93 12 5.04l-2 2c-2.52-2.52-5.99-4.08-10-4.08s-7.48 1.56-10 4.08l-2-2z"/></svg>';
+                            html += '<div class="wifi-info"><div class="wifi-name">' + n.ssid + '</div><div class="wifi-signal">Signal: ' + n.signal + '%</div></div>';
+                            html += '<span class="wifi-security">' + n.security + '</span>';
+                            html += '</li>';
+                        }
+                        if (wifiList) wifiList.innerHTML = html;
+                    }).catch(function(error) {
+                        if (wifiLoading) wifiLoading.classList.add('hidden');
+                        if (wifiList) wifiList.innerHTML = '<li class="wifi-item">Failed to scan networks</li>';
+                    });
+                });
+            }
+
+            // Modal connect button
+            if (modalConnect) {
+                modalConnect.addEventListener('click', function() {
+                    if (selectedNetwork && wifiPassword) {
+                        connectToWifi(selectedNetwork.ssid, wifiPassword.value);
+                    }
+                });
+            }
+
+            // Password enter key
+            if (wifiPassword) {
+                wifiPassword.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter' || e.keyCode === 13) {
+                        if (modalConnect) modalConnect.click();
+                    }
+                });
+            }
+
+            // Shutdown
+            if (shutdownBtn) {
+                shutdownBtn.addEventListener('click', function() {
+                    if (confirm('Are you sure you want to shutdown?')) {
+                        fetch('/api/system/shutdown', { method: 'POST' }).then(function() {
+                            alert('Shutting down...');
+                        }).catch(function() {
+                            alert('Failed to shutdown');
+                        });
+                    }
+                });
+            }
+
+            // Apply & Connect
+            if (applyBtn) {
+                applyBtn.addEventListener('click', function() {
+                    var settings = {
+                        wifi: {
+                            enabled: wifiEnabled ? wifiEnabled.checked : true,
+                            ssid: (currentSettings.wifi && currentSettings.wifi.ssid) || '',
+                            password: (currentSettings.wifi && currentSettings.wifi.password) || ''
+                        },
+                        schedule: {
+                            update_time: updateTime ? updateTime.value : '06:00'
+                        },
+                        photo_selection: {
+                            mode: selectionMode ? selectionMode.value : 'random'
+                        }
+                    };
+
+                    fetch('/api/settings', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(settings)
+                    }).then(function() {
+                        return fetch('/api/system/apply', { method: 'POST' });
+                    }).then(function() {
+                        alert('Applying settings and connecting to WiFi...');
+                    }).catch(function() {
+                        alert('Failed to apply settings');
+                    });
+                });
             }
         });
-
-        // Initialize
-        loadSettings();
-        loadStatus();
     </script>
 </body>
 </html>
