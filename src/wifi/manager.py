@@ -115,9 +115,9 @@ class WifiManager:
             return WifiStatus(connected=False, ssid=None, ip_address=None)
 
         try:
-            # Get connection status
+            # Get device status directly (more reliable than wifi list)
             result = subprocess.run(
-                ["nmcli", "-t", "-f", "ACTIVE,SSID", "device", "wifi"],
+                ["nmcli", "-t", "-f", "GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS", "device", "show", "wlan0"],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -125,26 +125,26 @@ class WifiManager:
 
             connected = False
             ssid = None
+            ip_address = None
 
             for line in result.stdout.strip().split("\n"):
-                if line.startswith("yes:"):
-                    connected = True
-                    ssid = line.split(":", 1)[1] if ":" in line else None
-                    break
+                if line.startswith("GENERAL.STATE:"):
+                    # State is "100 (connected)" when connected
+                    state = line.split(":", 1)[1] if ":" in line else ""
+                    connected = "connected" in state.lower() and "disconnected" not in state.lower()
+                elif line.startswith("GENERAL.CONNECTION:"):
+                    conn = line.split(":", 1)[1] if ":" in line else ""
+                    # Skip if it's AP mode connection
+                    if conn and conn not in ("--", "Hotspot", "EinkFrame-Open"):
+                        ssid = conn
+                elif line.startswith("IP4.ADDRESS"):
+                    addr = line.split(":", 1)[1] if ":" in line else ""
+                    if addr and addr != "--":
+                        ip_address = addr.split("/")[0]
 
-            # Get IP address if connected
-            ip_address = None
-            if connected:
-                ip_result = subprocess.run(
-                    ["nmcli", "-t", "-f", "IP4.ADDRESS", "device", "show", "wlan0"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                for line in ip_result.stdout.strip().split("\n"):
-                    if line.startswith("IP4.ADDRESS"):
-                        ip_address = line.split(":", 1)[1].split("/")[0]
-                        break
+            # Only consider connected if we have a valid SSID (not AP mode)
+            if connected and not ssid:
+                connected = False
 
             return WifiStatus(connected=connected, ssid=ssid, ip_address=ip_address)
 
@@ -165,13 +165,47 @@ class WifiManager:
             return False
 
         try:
-            # Build command
-            cmd = ["nmcli", "device", "wifi", "connect", ssid]
+            # Disconnect wlan0 first to prevent auto-reconnect from existing connections
+            subprocess.run(
+                ["nmcli", "device", "disconnect", "wlan0"],
+                capture_output=True,
+                timeout=10,
+            )
+
+            # Delete existing connection with same name to avoid duplicates
+            subprocess.run(
+                ["nmcli", "connection", "delete", "id", ssid],
+                capture_output=True,
+                timeout=10,
+            )
+
+            # Create new connection with explicit security settings
+            add_cmd = [
+                "nmcli", "connection", "add",
+                "type", "wifi",
+                "ifname", "wlan0",
+                "con-name", ssid,
+                "ssid", ssid,
+            ]
             if password:
-                cmd.extend(["password", password])
+                add_cmd.extend([
+                    "wifi-sec.key-mgmt", "wpa-psk",
+                    "wifi-sec.psk", password,
+                ])
 
             result = subprocess.run(
-                cmd,
+                add_cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if result.returncode != 0:
+                return False
+
+            # Activate the connection
+            result = subprocess.run(
+                ["nmcli", "connection", "up", ssid],
                 capture_output=True,
                 text=True,
                 timeout=30,

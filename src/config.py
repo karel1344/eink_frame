@@ -142,6 +142,26 @@ class Config:
         return self.get("web_ui.timeout", 600)
 
     @property
+    def ap_execution_mode(self) -> str:
+        return self.get("web_ui.ap_execution_mode", "normal")
+
+    @property
+    def ap_safe_timeout(self) -> int:
+        return self.get("web_ui.ap_safe_timeout", 60)
+
+    @property
+    def ap_password(self) -> str:
+        return self.get("web_ui.ap_password", "")
+
+    @property
+    def recovery_enabled(self) -> bool:
+        return self.get("web_ui.recovery_enabled", True)
+
+    @property
+    def captive_portal_enabled(self) -> bool:
+        return self.get("web_ui.captive_portal_enabled", True)
+
+    @property
     def display_model(self) -> str:
         return self.get("display.model", "spectra6_7in3")
 

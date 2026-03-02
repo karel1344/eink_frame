@@ -54,6 +54,10 @@ web_ui:
   ap_password: ""                # AP password (empty for open)
   port: 80                       # Web UI port (Captive Portal)
   timeout: 600                   # Web UI mode auto-shutdown timeout (seconds, 0 for unlimited)
+  ap_execution_mode: "normal"    # dry_run / preview / safe / normal
+  ap_safe_timeout: 60            # Timeout for safe mode (seconds)
+  recovery_enabled: true         # Enable boot recovery mechanism
+  captive_portal_enabled: true   # Enable DNS hijacking for captive portal
 
 # Physical button settings
 button:

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ..config import get_config
 from ..wifi.manager import get_wifi_manager
+from ..wifi.ap_mode import get_ap_manager, APStatus
 
 router = APIRouter()
 
@@ -205,6 +206,77 @@ async def connect_wifi(request: WifiConnectRequest) -> ApiResponse:
 
 
 # ============================================================================
+# AP Mode API
+# ============================================================================
+
+
+class APStatusResponse(BaseModel):
+    """AP mode status response."""
+
+    active: bool
+    ssid: str | None
+    elapsed_seconds: float
+    timeout_remaining: float
+    execution_mode: str
+
+
+@router.get("/api/ap/status")
+async def get_ap_status() -> APStatusResponse:
+    """Get AP mode status."""
+    ap = get_ap_manager()
+    status = ap.get_status()
+    return APStatusResponse(
+        active=status.active,
+        ssid=status.ssid,
+        elapsed_seconds=status.elapsed_seconds,
+        timeout_remaining=status.timeout_remaining,
+        execution_mode=status.execution_mode,
+    )
+
+
+@router.post("/api/ap/start")
+async def start_ap_mode() -> ApiResponse:
+    """Start AP mode (for testing).
+
+    In production, AP mode is started by the state machine.
+    This endpoint is for development/testing only.
+    """
+    ap = get_ap_manager()
+
+    if ap.is_active:
+        return ApiResponse(success=True, message="AP mode already active")
+
+    success = ap.start()
+    if success:
+        return ApiResponse(
+            success=True,
+            message=f"AP mode started: {ap.ssid}",
+            data={"ssid": ap.ssid},
+        )
+    else:
+        return ApiResponse(success=False, message="Failed to start AP mode")
+
+
+@router.post("/api/ap/stop")
+async def stop_ap_mode() -> ApiResponse:
+    """Stop AP mode (for testing).
+
+    In production, AP mode is stopped by the state machine.
+    This endpoint is for development/testing only.
+    """
+    ap = get_ap_manager()
+
+    if not ap.is_active:
+        return ApiResponse(success=True, message="AP mode not active")
+
+    success = ap.stop(reason="api_request")
+    if success:
+        return ApiResponse(success=True, message="AP mode stopped")
+    else:
+        return ApiResponse(success=False, message="Failed to stop AP mode")
+
+
+# ============================================================================
 # System Control API
 # ============================================================================
 
@@ -220,15 +292,134 @@ async def system_shutdown() -> ApiResponse:
     return ApiResponse(success=True, message="Shutdown initiated")
 
 
+class ApplyRequest(BaseModel):
+    """Apply settings request."""
+
+    wifi: WifiSettings | None = None
+
+
+_wifi_connect_in_progress = False
+
+
+def _connect_wifi_background(ssid: str, password: str) -> None:
+    """Background task to connect to WiFi after AP mode stops."""
+    import logging
+    import subprocess
+    import time
+
+    global _wifi_connect_in_progress
+    logger = logging.getLogger(__name__)
+    wifi = get_wifi_manager()
+    ap = get_ap_manager()
+
+    try:
+        # Wait for HTTP response to be sent before stopping AP
+        time.sleep(1)
+
+        # 1. Stop AP mode connections
+        logger.info("Stopping any active AP connections")
+        subprocess.run(["nmcli", "connection", "down", "Hotspot"], capture_output=True)
+        subprocess.run(["nmcli", "connection", "down", "EinkFrame-Open"], capture_output=True)
+        ap._active = False
+
+        # Wait for interface to settle
+        time.sleep(3)
+
+        # 2. Disconnect current WiFi
+        logger.info("Disconnecting current WiFi connection")
+        wifi.disconnect()
+        time.sleep(2)
+
+        # 3. Attempt connection with retries
+        for connect_attempt in range(3):
+            logger.info(f"WiFi connect attempt {connect_attempt + 1}/3 to: {ssid}")
+            wifi.connect(ssid, password)
+
+            # Verify connection (10 seconds per attempt)
+            # Check that we connected with OUR connection, not an existing one
+            for _ in range(2):
+                time.sleep(5)
+                status = wifi.get_status()
+                logger.info(f"Connection check: connected={status.connected}, ssid={status.ssid}, ip={status.ip_address}")
+                # Connection name must match what we created (ssid), not existing like netplan-wlan0-XXX
+                if status.connected and status.ip_address and status.ssid == ssid:
+                    logger.info(f"Successfully connected to {ssid}")
+                    return
+
+            # Wait before retry
+            if connect_attempt < 2:
+                logger.info("Connection not established, retrying...")
+                time.sleep(2)
+
+        # 4. All attempts failed - restart AP mode
+        logger.warning(f"Failed to connect to {ssid} after 3 attempts, restarting AP mode")
+        ap.start()
+
+    except Exception as e:
+        logger.error(f"Error during WiFi connection: {e}")
+        # Always restart AP mode on error
+        try:
+            ap.start()
+        except Exception:
+            pass
+
+    finally:
+        _wifi_connect_in_progress = False
+
+
 @router.post("/api/system/apply")
-async def system_apply() -> ApiResponse:
+async def system_apply(request: ApplyRequest | None = None) -> ApiResponse:
     """Apply settings and reconnect to WiFi.
 
-    This endpoint saves settings, stops AP mode, and attempts WiFi connection.
+    This endpoint saves WiFi settings and starts a background task
+    to connect. The response is sent immediately before AP mode stops,
+    so the client receives confirmation.
     """
-    # TODO: Implement event queue integration
-    # event_queue.put(Event.AP_USER_APPLY)
-    return ApiResponse(success=True, message="Applying settings and reconnecting")
+    import logging
+    import threading
+
+    global _wifi_connect_in_progress
+    logger = logging.getLogger(__name__)
+    config = get_config()
+
+    # Prevent duplicate execution
+    if _wifi_connect_in_progress:
+        return ApiResponse(success=False, message="WiFi connection already in progress")
+
+    # 1. Save WiFi settings if provided
+    if request and request.wifi:
+        config.set("wifi.ssid", request.wifi.ssid)
+        config.set("wifi.password", request.wifi.password)
+        config.set("wifi.enabled", request.wifi.enabled)
+        config.save()
+        logger.info(f"Saved WiFi settings for SSID: {request.wifi.ssid}")
+
+    # Get saved credentials
+    ssid = config.wifi_ssid
+    password = config.wifi_password
+
+    if not ssid:
+        return ApiResponse(success=False, message="No WiFi SSID configured")
+
+    # 2. Start background thread to handle WiFi connection
+    # This allows us to send response before AP mode stops
+    _wifi_connect_in_progress = True
+    try:
+        thread = threading.Thread(
+            target=_connect_wifi_background,
+            args=(ssid, password),
+            daemon=True,
+        )
+        thread.start()
+    except Exception as e:
+        _wifi_connect_in_progress = False
+        logger.error(f"Failed to start WiFi connection thread: {e}")
+        return ApiResponse(success=False, message="Failed to start connection process")
+
+    return ApiResponse(
+        success=True,
+        message=f"Connecting to {ssid}... AP mode will stop shortly.",
+    )
 
 
 # ============================================================================
