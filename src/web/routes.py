@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any, Optional, List, Dict
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi import APIRouter, Request, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, FileResponse
 from pydantic import BaseModel
 
 from ..config import get_config
 from ..wifi.manager import get_wifi_manager
 from ..wifi.ap_mode import get_ap_manager, APStatus
 from ..wifi.captive_portal import get_captive_dns, CAPTIVE_PORTAL_URLS
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -40,10 +44,13 @@ class WifiNetwork(BaseModel):
 class SettingsUpdate(BaseModel):
     """Settings update request model."""
 
-    wifi: WifiSettings | None = None
-    schedule: dict[str, Any] | None = None
-    photo_selection: dict[str, Any] | None = None
-    display: dict[str, Any] | None = None
+    wifi: Optional[WifiSettings] = None
+    schedule: Optional[dict[str, Any]] = None
+    photo_selection: Optional[dict[str, Any]] = None
+    display: Optional[dict[str, Any]] = None
+    image_processing: Optional[dict[str, Any]] = None
+    battery: Optional[dict[str, Any]] = None
+    storage: Optional[dict[str, Any]] = None
 
 
 class StatusResponse(BaseModel):
@@ -51,9 +58,9 @@ class StatusResponse(BaseModel):
 
     battery: dict[str, Any]
     wifi_connected: bool
-    last_update: str | None
-    next_update: str | None
-    current_photo: dict[str, Any] | None
+    last_update: Optional[str]
+    next_update: Optional[str]
+    current_photo: Optional[dict[str, Any]]
     version: str
 
 
@@ -62,7 +69,7 @@ class ApiResponse(BaseModel):
 
     success: bool
     message: str = ""
-    data: dict[str, Any] | None = None
+    data: Optional[dict[str, Any]] = None
 
 
 # ============================================================================
@@ -129,6 +136,15 @@ async def update_settings(settings: SettingsUpdate) -> ApiResponse:
 
     if settings.display is not None:
         config.update({"display": settings.display})
+
+    if settings.image_processing is not None:
+        config.update({"image_processing": settings.image_processing})
+
+    if settings.battery is not None:
+        config.update({"battery": settings.battery})
+
+    if settings.storage is not None:
+        config.update({"storage": settings.storage})
 
     config.save()
 
@@ -215,7 +231,7 @@ class APStatusResponse(BaseModel):
     """AP mode status response."""
 
     active: bool
-    ssid: str | None
+    ssid: Optional[str]
     elapsed_seconds: float
     timeout_remaining: float
     execution_mode: str
@@ -296,7 +312,7 @@ async def system_shutdown() -> ApiResponse:
 class ApplyRequest(BaseModel):
     """Apply settings request."""
 
-    wifi: WifiSettings | None = None
+    wifi: Optional[WifiSettings] = None
 
 
 _wifi_connect_in_progress = False
@@ -369,7 +385,7 @@ def _connect_wifi_background(ssid: str, password: str) -> None:
 
 
 @router.post("/api/system/apply")
-async def system_apply(request: ApplyRequest | None = None) -> ApiResponse:
+async def system_apply(request: Optional[ApplyRequest] = None) -> ApiResponse:
     """Apply settings and reconnect to WiFi.
 
     This endpoint saves WiFi settings and starts a background task
@@ -592,31 +608,94 @@ async def test_captive_dns() -> dict[str, Any]:
 
 
 # ============================================================================
-# Photos API (placeholder)
+# Photos API
 # ============================================================================
+
+def _get_local_source():
+    """Return a LocalPhotoSource using paths from config."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+    from photo_source.local import LocalPhotoSource
+    from database import get_db
+
+    config = get_config()
+    photos_path = config.get("photo_sources.local.path", "photos/local")
+    photos_dir = Path(__file__).parent.parent.parent / photos_path
+    return LocalPhotoSource(photos_dir, db=get_db())
 
 
 @router.get("/api/photos")
 async def list_photos() -> dict[str, Any]:
-    """List local photos with thumbnails."""
-    # TODO: Implement photo listing
+    """List local photos."""
+    source = _get_local_source()
+    photos = source.list_photos()
+
+    # Compute storage used
+    storage_used = sum((p.file_size or 0) for p in photos)
+    storage_limit_mb = get_config().get("storage.local_photos_max_mb", 500)
+
     return {
-        "photos": [],
-        "total": 0,
-        "storage_used_mb": 0,
-        "storage_available_mb": 500,
+        "photos": [
+            {
+                "id": p.id,
+                "filename": p.filename,
+                "title": p.display_name,
+                "width": p.width,
+                "height": p.height,
+                "mime_type": p.mime_type,
+                "file_size": p.file_size,
+                "taken_at": p.taken_at.isoformat() if p.taken_at else None,
+                "added_at": p.added_at.isoformat() if p.added_at else None,
+                "thumbnail_url": f"/api/photos/{p.id}/thumbnail" if p.thumbnail_path else None,
+            }
+            for p in photos
+        ],
+        "total": len(photos),
+        "storage_used_mb": round(storage_used / (1024 * 1024), 1),
+        "storage_limit_mb": storage_limit_mb,
     }
 
 
 @router.post("/api/photos/upload")
-async def upload_photo() -> ApiResponse:
-    """Upload a new photo."""
-    # TODO: Implement photo upload
-    return ApiResponse(success=False, message="Not implemented yet")
+async def upload_photo(file: UploadFile = File(...)) -> ApiResponse:
+    """Upload a new photo (JPEG, PNG, HEIC — max 20 MB)."""
+    source = _get_local_source()
+    try:
+        photo = source.save_upload(file.filename or "upload.jpg", file.file)
+        return ApiResponse(
+            success=True,
+            message=f"Uploaded {photo.filename}",
+            data={
+                "id": photo.id,
+                "filename": photo.filename,
+                "width": photo.width,
+                "height": photo.height,
+                "thumbnail_url": f"/api/photos/{photo.id}/thumbnail" if photo.thumbnail_path else None,
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Upload failed: %s", e)
+        raise HTTPException(status_code=500, detail="Upload failed")
 
 
 @router.delete("/api/photos/{photo_id}")
-async def delete_photo(photo_id: str) -> ApiResponse:
-    """Delete a photo."""
-    # TODO: Implement photo deletion
-    return ApiResponse(success=False, message="Not implemented yet")
+async def delete_photo(photo_id: int) -> ApiResponse:
+    """Delete a photo by id."""
+    source = _get_local_source()
+    photo = source.get_photo(photo_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    source.delete_photo(photo_id)
+    return ApiResponse(success=True, message=f"Deleted photo {photo_id}")
+
+
+@router.get("/api/photos/{photo_id}/thumbnail")
+async def get_thumbnail(photo_id: int):
+    """Serve the thumbnail image for a photo."""
+    source = _get_local_source()
+    thumb_path = source.ensure_thumbnail(photo_id)
+    if thumb_path is None or not thumb_path.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(thumb_path, media_type="image/jpeg")

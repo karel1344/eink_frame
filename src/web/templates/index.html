@@ -388,6 +388,122 @@
         .tab-content.active {
             display: block;
         }
+
+        /* Photos */
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 32px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            margin-bottom: 16px;
+        }
+
+        .upload-area:hover,
+        .upload-area.drag-over {
+            border-color: #3498db;
+            background: #f0f7ff;
+        }
+
+        .upload-area p {
+            color: #7f8c8d;
+            margin-top: 8px;
+            font-size: 0.9rem;
+        }
+
+        .upload-icon {
+            font-size: 2.5rem;
+            line-height: 1;
+        }
+
+        .storage-bar-wrap {
+            background: #eee;
+            border-radius: 4px;
+            height: 6px;
+            margin: 8px 0 4px;
+        }
+
+        .storage-bar {
+            background: #3498db;
+            border-radius: 4px;
+            height: 6px;
+            transition: width 0.4s;
+        }
+
+        .storage-label {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+        }
+
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .photo-item {
+            position: relative;
+            aspect-ratio: 1;
+            border-radius: 4px;
+            overflow: hidden;
+            background: #eee;
+        }
+
+        .photo-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .photo-delete {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.55);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 24px;
+            text-align: center;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .photo-item:hover .photo-delete {
+            opacity: 1;
+        }
+
+        .photo-item.uploading::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.7);
+        }
+
+        .photo-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #aaa;
+            font-size: 1.5rem;
+        }
+
+        .photos-empty {
+            text-align: center;
+            padding: 32px 0;
+            color: #aaa;
+        }
     </style>
 </head>
 <body>
@@ -396,25 +512,25 @@
     </header>
 
     <div class="status-bar">
-        <span id="battery-status">Battery: --</span>
-        <span id="connection-status">AP Mode</span>
+        <span id="battery-status">배터리: --</span>
+        <span id="connection-status">AP 모드</span>
     </div>
 
     <div class="container">
         <!-- Tabs -->
         <div class="tabs">
             <div class="tab active" data-tab="wifi">WiFi</div>
-            <div class="tab" data-tab="photos">Photos</div>
-            <div class="tab" data-tab="settings">Settings</div>
+            <div class="tab" data-tab="photos">사진</div>
+            <div class="tab" data-tab="settings">설정</div>
         </div>
 
         <!-- WiFi Tab -->
         <div id="wifi-tab" class="tab-content active">
             <div class="card">
-                <div class="card-header">WiFi Settings</div>
+                <div class="card-header">WiFi 설정</div>
                 <div class="card-body">
                     <div class="form-group toggle-group">
-                        <label>WiFi Enabled</label>
+                        <label>WiFi 사용</label>
                         <label class="toggle">
                             <input type="checkbox" id="wifi-enabled" checked>
                             <span class="toggle-slider"></span>
@@ -423,18 +539,18 @@
 
                     <div id="wifi-config">
                         <div class="form-group">
-                            <label>Current Network</label>
-                            <input type="text" id="wifi-ssid" placeholder="Not configured" readonly>
+                            <label>현재 네트워크</label>
+                            <input type="text" id="wifi-ssid" placeholder="설정 안 됨" readonly>
                         </div>
 
                         <button class="btn btn-primary btn-block" id="scan-wifi-btn">
-                            Scan WiFi Networks
+                            WiFi 네트워크 검색
                         </button>
 
                         <div id="wifi-list-container" class="hidden" style="margin-top: 16px;">
-                            <label style="font-weight: 500; margin-bottom: 8px; display: block;">Available Networks</label>
+                            <label style="font-weight: 500; margin-bottom: 8px; display: block;">검색된 네트워크</label>
                             <div id="wifi-loading" class="loading hidden">
-                                <span class="spinner"></span> Scanning...
+                                <span class="spinner"></span> 검색 중...
                             </div>
                             <ul id="wifi-list" class="wifi-list"></ul>
                         </div>
@@ -443,19 +559,39 @@
             </div>
 
             <div class="btn-group">
-                <button class="btn btn-danger" id="shutdown-btn">Shutdown</button>
-                <button class="btn btn-success" id="apply-btn">Apply & Connect</button>
+                <button class="btn btn-danger" id="shutdown-btn">종료</button>
+                <button class="btn btn-success" id="apply-btn">적용 및 연결</button>
             </div>
         </div>
 
         <!-- Photos Tab -->
         <div id="photos-tab" class="tab-content">
             <div class="card">
-                <div class="card-header">Photo Management</div>
+                <div class="card-header">사진 업로드</div>
                 <div class="card-body">
-                    <div class="alert alert-info">
-                        Photo management coming soon...
+                    <div class="upload-area" id="upload-area">
+                        <div class="upload-icon">📷</div>
+                        <strong>클릭하거나 드래그하여 추가</strong>
+                        <p>JPEG · PNG · HEIC &nbsp;/&nbsp; 최대 20 MB</p>
                     </div>
+                    <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.heic,.heif" multiple style="display:none">
+                    <div id="upload-status"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>사진 <span id="photo-count" style="font-weight:400;color:#888;font-size:0.9rem;"></span></span>
+                    <button class="btn btn-primary" id="refresh-photos-btn" style="padding:6px 12px;font-size:0.85rem;">새로고침</button>
+                </div>
+                <div class="card-body">
+                    <div class="storage-bar-wrap">
+                        <div class="storage-bar" id="storage-bar" style="width:0%"></div>
+                    </div>
+                    <div class="storage-label" id="storage-label">0 MB / 500 MB</div>
+
+                    <div id="photo-grid" class="photo-grid" style="margin-top:16px;"></div>
+                    <div id="photos-empty" class="photos-empty hidden">사진이 없습니다. 위에서 업로드하세요.</div>
                 </div>
             </div>
         </div>
@@ -463,52 +599,122 @@
         <!-- Settings Tab -->
         <div id="settings-tab" class="tab-content">
             <div class="card">
-                <div class="card-header">Schedule</div>
+                <div class="card-header">스케줄</div>
                 <div class="card-body">
                     <div class="form-group">
-                        <label>Update Time</label>
+                        <label>업데이트 시간</label>
                         <input type="time" id="update-time" value="06:00">
+                    </div>
+                    <div class="form-group">
+                        <label>시간대</label>
+                        <input type="text" id="timezone" placeholder="Asia/Seoul">
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-header">Photo Selection</div>
+                <div class="card-header">사진 선택</div>
                 <div class="card-body">
                     <div class="form-group">
-                        <label>Selection Mode</label>
+                        <label>선택 모드</label>
                         <select id="selection-mode">
-                            <option value="random">Random</option>
-                            <option value="sequential">Sequential</option>
-                            <option value="date_based">Date Based</option>
+                            <option value="random">무작위</option>
+                            <option value="sequential">순서대로</option>
+                            <option value="date_based">날짜 기준</option>
+                        </select>
+                    </div>
+                    <div class="form-group toggle-group">
+                        <label>반복 방지</label>
+                        <label class="toggle">
+                            <input type="checkbox" id="avoid-repeats" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="form-group" id="repeat-threshold-group">
+                        <label>반복 제한 수 <small style="color:#888">(장)</small></label>
+                        <input type="number" id="repeat-threshold" min="5" max="200" value="30">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">디스플레이</div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>디스플레이 모델</label>
+                        <select id="display-model">
+                            <option value="7in3e">7.3인치 (800×480, 6색)</option>
+                            <option value="13in3e">13.3인치 (1200×1600, 6색)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>채우기 모드</label>
+                        <select id="fill-mode">
+                            <option value="fit">Fit (여백 있음 — 사진 전체 표시)</option>
+                            <option value="fill">Fill (꽉 채움 — 일부 잘릴 수 있음)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>회전</label>
+                        <select id="display-rotation">
+                            <option value="0">0° (기본)</option>
+                            <option value="90">90°</option>
+                            <option value="180">180°</option>
+                            <option value="270">270°</option>
                         </select>
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-header">System Info</div>
+                <div class="card-header">배터리</div>
                 <div class="card-body">
-                    <p><strong>Version:</strong> <span id="version">0.1.0</span></p>
-                    <p><strong>Last Update:</strong> <span id="last-update">--</span></p>
+                    <div class="form-group toggle-group">
+                        <label>배터리 아이콘 표시</label>
+                        <label class="toggle">
+                            <input type="checkbox" id="battery-indicator" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
+
+            <div class="card">
+                <div class="card-header">저장소</div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>로컬 사진 최대 용량 <small style="color:#888">(MB)</small></label>
+                        <input type="number" id="local-storage-limit" min="100" max="100000" value="1000">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">시스템 정보</div>
+                <div class="card-body">
+                    <p><strong>버전:</strong> <span id="version">0.1.0</span></p>
+                    <p style="margin-top:6px"><strong>마지막 업데이트:</strong> <span id="last-update">--</span></p>
+                </div>
+            </div>
+
+            <div id="settings-status"></div>
+            <button class="btn btn-success btn-block" id="save-settings-btn" style="margin-bottom:16px">설정 저장</button>
         </div>
     </div>
 
     <!-- WiFi Password Modal (fallback for full browsers) -->
     <div id="wifi-modal" class="modal-overlay">
         <div class="modal">
-            <div class="modal-header">Connect to <span id="modal-ssid"></span></div>
+            <div class="modal-header">연결: <span id="modal-ssid"></span></div>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Password</label>
-                    <input type="password" id="wifi-password" placeholder="Enter WiFi password">
+                    <label>비밀번호</label>
+                    <input type="password" id="wifi-password" placeholder="WiFi 비밀번호 입력">
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn" id="modal-cancel" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-primary" id="modal-connect">Connect</button>
+                <button class="btn" id="modal-cancel" onclick="closeModal()">취소</button>
+                <button class="btn btn-primary" id="modal-connect">연결</button>
             </div>
         </div>
     </div>
@@ -577,12 +783,12 @@
                 body: JSON.stringify({ wifi: currentSettings.wifi })
             }).then(function(response) {
                 if (response.ok) {
-                    alert('WiFi "' + ssid + '" configured.\nClick "Apply & Connect" to connect.');
+                    alert('WiFi "' + ssid + '" 저장됨.\n"적용 및 연결"을 눌러 연결하세요.');
                 } else {
-                    alert('Failed to save WiFi settings');
+                    alert('WiFi 설정 저장 실패');
                 }
             }).catch(function(error) {
-                alert('Failed to save WiFi settings');
+                alert('WiFi 설정 저장 실패');
             });
         }
 
@@ -602,6 +808,16 @@
             var batteryStatus = document.getElementById('battery-status');
             var updateTime = document.getElementById('update-time');
             var selectionMode = document.getElementById('selection-mode');
+            var timezone = document.getElementById('timezone');
+            var avoidRepeats = document.getElementById('avoid-repeats');
+            var repeatThreshold = document.getElementById('repeat-threshold');
+            var repeatThresholdGroup = document.getElementById('repeat-threshold-group');
+            var displayModel = document.getElementById('display-model');
+            var fillMode = document.getElementById('fill-mode');
+            var displayRotation = document.getElementById('display-rotation');
+            var batteryIndicator = document.getElementById('battery-indicator');
+            var localStorageLimit = document.getElementById('local-storage-limit');
+            var saveSettingsBtn = document.getElementById('save-settings-btn');
 
             // Tab switching
             var tabs = document.querySelectorAll('.tab');
@@ -634,10 +850,33 @@
             }).then(function(settings) {
                 currentSettings = settings;
                 if (wifiEnabled) wifiEnabled.checked = settings.wifi && settings.wifi.enabled !== false;
-                if (wifiSsid) wifiSsid.value = (settings.wifi && settings.wifi.ssid) || 'Not configured';
+                if (wifiSsid) wifiSsid.value = (settings.wifi && settings.wifi.ssid) || '설정 안 됨';
                 if (wifiConfig) wifiConfig.style.display = (wifiEnabled && wifiEnabled.checked) ? 'block' : 'none';
-                if (updateTime && settings.schedule) updateTime.value = settings.schedule.update_time || '06:00';
-                if (selectionMode && settings.photo_selection) selectionMode.value = settings.photo_selection.mode || 'random';
+
+                if (settings.schedule) {
+                    if (updateTime) updateTime.value = settings.schedule.update_time || '06:00';
+                    if (timezone) timezone.value = settings.schedule.timezone || 'Asia/Seoul';
+                }
+                if (settings.photo_selection) {
+                    if (selectionMode) selectionMode.value = settings.photo_selection.mode || 'random';
+                    var ar = settings.photo_selection.avoid_repeats !== false;
+                    if (avoidRepeats) avoidRepeats.checked = ar;
+                    if (repeatThreshold) repeatThreshold.value = settings.photo_selection.repeat_threshold || 30;
+                    if (repeatThresholdGroup) repeatThresholdGroup.style.display = ar ? 'block' : 'none';
+                }
+                if (settings.display) {
+                    if (displayModel) displayModel.value = settings.display.model || '7in3e';
+                    if (displayRotation) displayRotation.value = String(settings.display.rotation || 0);
+                }
+                if (settings.storage) {
+                    if (localStorageLimit) localStorageLimit.value = settings.storage.local_photos_max_mb || 1000;
+                }
+                if (settings.image_processing) {
+                    if (fillMode) fillMode.value = settings.image_processing.fill_mode || 'fit';
+                }
+                if (settings.battery) {
+                    if (batteryIndicator) batteryIndicator.checked = settings.battery.show_indicator !== false;
+                }
             }).catch(function(error) {
                 console.error('Failed to load settings:', error);
             });
@@ -646,7 +885,7 @@
             fetch('/api/status').then(function(response) {
                 return response.json();
             }).then(function(status) {
-                if (batteryStatus) batteryStatus.textContent = 'Battery: ' + status.battery.percentage + '%';
+                if (batteryStatus) batteryStatus.textContent = '배터리: ' + status.battery.percentage + '%';
             }).catch(function(error) {
                 console.error('Failed to load status:', error);
             });
@@ -668,14 +907,14 @@
                             var n = networks[i];
                             html += '<li class="wifi-item" data-ssid="' + n.ssid + '" data-security="' + n.security + '" onclick="selectWifi(\'' + n.ssid.replace(/'/g, "\\'") + '\', \'' + n.security + '\')">';
                             html += '<svg class="wifi-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21l-6-6c1.66-1.66 3.94-2.69 6-2.69s4.34 1.03 6 2.69l-6 6zm-9-9c2.48-2.48 5.89-4.02 9-4.02s6.52 1.54 9 4.02l-2 2c-1.88-1.88-4.47-3.05-7-3.05s-5.12 1.17-7 3.05l-2-2zm-3-3c3.11-3.11 7.39-5.04 12-5.04s8.89 1.93 12 5.04l-2 2c-2.52-2.52-5.99-4.08-10-4.08s-7.48 1.56-10 4.08l-2-2z"/></svg>';
-                            html += '<div class="wifi-info"><div class="wifi-name">' + n.ssid + '</div><div class="wifi-signal">Signal: ' + n.signal + '%</div></div>';
+                            html += '<div class="wifi-info"><div class="wifi-name">' + n.ssid + '</div><div class="wifi-signal">신호: ' + n.signal + '%</div></div>';
                             html += '<span class="wifi-security">' + n.security + '</span>';
                             html += '</li>';
                         }
                         if (wifiList) wifiList.innerHTML = html;
                     }).catch(function(error) {
                         if (wifiLoading) wifiLoading.classList.add('hidden');
-                        if (wifiList) wifiList.innerHTML = '<li class="wifi-item">Failed to scan networks</li>';
+                        if (wifiList) wifiList.innerHTML = '<li class="wifi-item">네트워크 검색 실패</li>';
                     });
                 });
             }
@@ -701,43 +940,226 @@
             // Shutdown
             if (shutdownBtn) {
                 shutdownBtn.addEventListener('click', function() {
-                    if (confirm('Are you sure you want to shutdown?')) {
+                    if (confirm('정말 종료하시겠습니까?')) {
                         fetch('/api/system/shutdown', { method: 'POST' }).then(function() {
-                            alert('Shutting down...');
+                            alert('종료 중...');
                         }).catch(function() {
-                            alert('Failed to shutdown');
+                            alert('종료 실패');
                         });
                     }
                 });
             }
 
-            // Apply & Connect
+            // ----------------------------------------------------------------
+            // Photos tab
+            // ----------------------------------------------------------------
+
+            function loadPhotos() {
+                fetch('/api/photos').then(function(r) { return r.json(); }).then(function(data) {
+                    var grid = document.getElementById('photo-grid');
+                    var empty = document.getElementById('photos-empty');
+                    var countEl = document.getElementById('photo-count');
+                    var bar = document.getElementById('storage-bar');
+                    var label = document.getElementById('storage-label');
+
+                    if (countEl) countEl.textContent = '(' + data.total + ')';
+
+                    var pct = Math.min(100, (data.storage_used_mb / data.storage_limit_mb) * 100);
+                    if (bar) bar.style.width = pct + '%';
+                    if (label) label.textContent = data.storage_used_mb + ' MB / ' + data.storage_limit_mb + ' MB';
+
+                    if (!grid) return;
+                    if (data.total === 0) {
+                        grid.innerHTML = '';
+                        if (empty) empty.classList.remove('hidden');
+                        return;
+                    }
+                    if (empty) empty.classList.add('hidden');
+
+                    var html = '';
+                    for (var i = 0; i < data.photos.length; i++) {
+                        var p = data.photos[i];
+                        var src = p.thumbnail_url ? p.thumbnail_url + '?t=' + Date.now() : '';
+                        var imgTag = src
+                            ? '<img src="' + src + '" alt="' + p.filename + '" loading="lazy">'
+                            : '<div class="photo-placeholder">🖼</div>';
+                        html += '<div class="photo-item" id="photo-' + p.id + '" title="' + p.filename + '">';
+                        html += imgTag;
+                        html += '<button class="photo-delete" onclick="deletePhoto(' + p.id + ',\'' + p.filename.replace(/'/g, "\\'") + '\')" title="삭제">✕</button>';
+                        html += '</div>';
+                    }
+                    grid.innerHTML = html;
+                }).catch(function(e) {
+                    console.error('Failed to load photos', e);
+                });
+            }
+
+            window.deletePhoto = function deletePhoto(id, filename) {
+                if (!confirm('"' + filename + '" 삭제하시겠습니까?')) return;
+                fetch('/api/photos/' + id, { method: 'DELETE' }).then(function(r) {
+                    return r.json();
+                }).then(function(data) {
+                    if (data.success) {
+                        var el = document.getElementById('photo-' + id);
+                        if (el) el.remove();
+                        loadPhotos();
+                    } else {
+                        alert('삭제 실패: ' + data.message);
+                    }
+                }).catch(function() { alert('삭제 실패'); });
+            }
+
+            function uploadFiles(files) {
+                var statusEl = document.getElementById('upload-status');
+                var pending = Array.from(files);
+
+                function uploadNext() {
+                    if (pending.length === 0) {
+                        if (statusEl) statusEl.innerHTML = '';
+                        loadPhotos();
+                        return;
+                    }
+                    var file = pending.shift();
+                    if (statusEl) statusEl.innerHTML = '<div class="alert alert-info">' + file.name + ' 업로드 중…</div>';
+
+                    var fd = new FormData();
+                    fd.append('file', file);
+
+                    fetch('/api/photos/upload', { method: 'POST', body: fd }).then(function(r) {
+                        return r.json();
+                    }).then(function(data) {
+                        if (!data.success) {
+                            if (statusEl) statusEl.innerHTML = '<div class="alert alert-error">' + (data.detail || data.message) + '</div>';
+                            setTimeout(function() { if (statusEl) statusEl.innerHTML = ''; uploadNext(); }, 2500);
+                        } else {
+                            uploadNext();
+                        }
+                    }).catch(function() {
+                        if (statusEl) statusEl.innerHTML = '<div class="alert alert-error">업로드 실패</div>';
+                        setTimeout(function() { if (statusEl) statusEl.innerHTML = ''; uploadNext(); }, 2500);
+                    });
+                }
+
+                uploadNext();
+            }
+
+            // Upload area click
+            var uploadArea = document.getElementById('upload-area');
+            var fileInput = document.getElementById('file-input');
+
+            if (uploadArea && fileInput) {
+                uploadArea.addEventListener('click', function() { fileInput.click(); });
+
+                uploadArea.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    uploadArea.classList.add('drag-over');
+                });
+                uploadArea.addEventListener('dragleave', function() {
+                    uploadArea.classList.remove('drag-over');
+                });
+                uploadArea.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    uploadArea.classList.remove('drag-over');
+                    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+                        uploadFiles(e.dataTransfer.files);
+                    }
+                });
+
+                fileInput.addEventListener('change', function() {
+                    if (fileInput.files && fileInput.files.length > 0) {
+                        uploadFiles(fileInput.files);
+                        fileInput.value = '';
+                    }
+                });
+            }
+
+            // Refresh button
+            var refreshPhotosBtn = document.getElementById('refresh-photos-btn');
+            if (refreshPhotosBtn) {
+                refreshPhotosBtn.addEventListener('click', loadPhotos);
+            }
+
+            // Load photos when Photos tab is activated
+            var tabs = document.querySelectorAll('.tab');
+            // (tabs loop below replaces the original one — keep reference here)
+
+            // Initial load if Photos tab becomes active
+            document.querySelectorAll('.tab').forEach(function(tab) {
+                tab.addEventListener('click', function() {
+                    if (this.getAttribute('data-tab') === 'photos') {
+                        loadPhotos();
+                    }
+                });
+            });
+
+            // Apply & Connect (WiFi only)
             if (applyBtn) {
                 applyBtn.addEventListener('click', function() {
-                    var settings = {
-                        wifi: {
-                            enabled: wifiEnabled ? wifiEnabled.checked : true,
-                            ssid: (currentSettings.wifi && currentSettings.wifi.ssid) || '',
-                            password: (currentSettings.wifi && currentSettings.wifi.password) || ''
-                        },
+                    fetch('/api/system/apply', { method: 'POST' }).then(function(r) {
+                        return r.json();
+                    }).then(function(data) {
+                        if (data.success) {
+                            alert('WiFi 연결 중... 잠시 후 AP 모드가 종료됩니다.');
+                        } else {
+                            alert('실패: ' + data.message);
+                        }
+                    }).catch(function() {
+                        alert('설정 적용 실패');
+                    });
+                });
+            }
+
+            // Avoid repeats toggle
+            if (avoidRepeats && repeatThresholdGroup) {
+                avoidRepeats.addEventListener('change', function() {
+                    repeatThresholdGroup.style.display = avoidRepeats.checked ? 'block' : 'none';
+                });
+            }
+
+            // Save Settings
+            if (saveSettingsBtn) {
+                saveSettingsBtn.addEventListener('click', function() {
+                    var payload = {
                         schedule: {
-                            update_time: updateTime ? updateTime.value : '06:00'
+                            update_time: updateTime ? updateTime.value : '06:00',
+                            timezone: timezone ? timezone.value : 'Asia/Seoul'
                         },
                         photo_selection: {
-                            mode: selectionMode ? selectionMode.value : 'random'
+                            mode: selectionMode ? selectionMode.value : 'random',
+                            avoid_repeats: avoidRepeats ? avoidRepeats.checked : true,
+                            repeat_threshold: repeatThreshold ? parseInt(repeatThreshold.value) || 30 : 30
+                        },
+                        display: {
+                            model: displayModel ? displayModel.value : '7in3e',
+                            rotation: displayRotation ? parseInt(displayRotation.value) || 0 : 0
+                        },
+                        image_processing: {
+                            fill_mode: fillMode ? fillMode.value : 'fit'
+                        },
+                        battery: {
+                            show_indicator: batteryIndicator ? batteryIndicator.checked : true
+                        },
+                        storage: {
+                            local_photos_max_mb: localStorageLimit ? parseInt(localStorageLimit.value) || 1000 : 1000
                         }
                     };
 
+                    var statusEl = document.getElementById('settings-status');
                     fetch('/api/settings', {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(settings)
-                    }).then(function() {
-                        return fetch('/api/system/apply', { method: 'POST' });
-                    }).then(function() {
-                        alert('Applying settings and connecting to WiFi...');
+                        body: JSON.stringify(payload)
+                    }).then(function(r) {
+                        return r.json();
+                    }).then(function(data) {
+                        if (data.success) {
+                            if (statusEl) statusEl.innerHTML = '<div class="alert alert-success">설정이 저장되었습니다</div>';
+                            setTimeout(function() { if (statusEl) statusEl.innerHTML = ''; }, 3000);
+                        } else {
+                            if (statusEl) statusEl.innerHTML = '<div class="alert alert-error">실패: ' + data.message + '</div>';
+                        }
                     }).catch(function() {
-                        alert('Failed to apply settings');
+                        if (statusEl) statusEl.innerHTML = '<div class="alert alert-error">설정 저장 실패</div>';
                     });
                 });
             }

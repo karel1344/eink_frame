@@ -7,9 +7,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+VENV_PYTHON="$PROJECT_DIR/venv/bin/python"
 SERVICE_NAME="einkframe"
 
 echo "Installing E-Ink Frame Service..."
+echo "Project directory: $PROJECT_DIR"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -17,9 +19,54 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Copy service file
-cp "$SCRIPT_DIR/${SERVICE_NAME}.service" /etc/systemd/system/
-echo "Copied service file"
+# Create venv if not exists
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "Creating Python virtual environment..."
+    python3 -m venv "$PROJECT_DIR/venv"
+    echo "Virtual environment created"
+fi
+
+# Upgrade pip
+echo "Upgrading pip..."
+"$PROJECT_DIR/venv/bin/pip" install --upgrade pip
+
+# Install dependencies from requirements.txt
+REQUIREMENTS_FILE="$PROJECT_DIR/requirements.txt"
+if [ -f "$REQUIREMENTS_FILE" ]; then
+    echo "Installing dependencies from requirements.txt..."
+    "$PROJECT_DIR/venv/bin/pip" install -r "$REQUIREMENTS_FILE"
+    echo "Dependencies installed"
+else
+    echo "Warning: requirements.txt not found at $REQUIREMENTS_FILE"
+fi
+
+# Generate service file from current paths
+cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
+[Unit]
+Description=E-Ink Photo Frame
+After=network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${PROJECT_DIR}
+ExecStart=${VENV_PYTHON} ${PROJECT_DIR}/einkframe.py
+Restart=on-failure
+RestartSec=10
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "Generated service file"
 
 # Reload systemd
 systemctl daemon-reload

@@ -678,9 +678,8 @@ eink_frame/
 
 # 디스플레이 설정
 display:
-  model: "spectra6_7in3"        # spectra6_7in3 / spectra6_13in3
-  orientation: "landscape"       # landscape / portrait
-  rotation: 0                    # 0 / 90 / 180 / 270
+  model: "7in3e"                 # 7in3e / 13in3k
+  rotation: 0                    # 0 / 90 / 180 / 270  (90/270이면 portrait 자동 처리)
 
 # 스케줄 설정
 schedule:

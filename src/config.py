@@ -163,7 +163,23 @@ class Config:
 
     @property
     def display_model(self) -> str:
-        return self.get("display.model", "spectra6_7in3")
+        return self.get("display.model", "7in3e")
+
+    @property
+    def display_rotation(self) -> int:
+        return int(self.get("display.rotation", 0))
+
+    @property
+    def image_fill_mode(self) -> str:
+        return self.get("image_processing.fill_mode", "fit")
+
+    @property
+    def image_auto_rotate(self) -> bool:
+        return bool(self.get("image_processing.auto_rotate", True))
+
+    @property
+    def battery_show_indicator(self) -> bool:
+        return bool(self.get("battery.show_indicator", True))
 
     @property
     def photo_selection_mode(self) -> str:

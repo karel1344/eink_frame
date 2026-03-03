@@ -64,12 +64,12 @@ sudo ./scripts/install_service.sh
 ## 실행
 
 ```bash
-# 개발 모드 (WiFi 연결 시도 안함)
-python run_dev.py
+# 개발 모드 (Mac, WiFi 연결 시도 안함)
+python einkframe.py --dev
 # http://localhost:8000
 
-# 프로덕션 모드 (WiFi 연결 → 실패 시 AP 모드)
-sudo python run_production.py
+# 프로덕션 모드 (Pi, WiFi 연결 → 실패 시 AP 모드)
+sudo python einkframe.py
 
 # 서비스로 실행
 sudo systemctl start einkframe
