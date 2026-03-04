@@ -279,13 +279,48 @@ class PowerManager:
         except OSError:
             logger.exception("Failed to clear startup alarm")
 
+    # ------------------------------------------------------------------
+    # Public: RTC sync
+    # ------------------------------------------------------------------
+
+    def sync_rtc(self) -> None:
+        """Write the Pi's current UTC time to the Witty Pi RTC registers.
+
+        Should be called after NTP sync to ensure the Witty Pi wakes up
+        at the correct time. Witty Pi 4 L3V7 RTC registers (BCD encoded):
+          10=sec, 11=min, 12=hour, 14=day, 15=month, 16=year (00-99)
+        """
+        if not self._ensure_connected():
+            logger.warning("Cannot sync RTC: Witty Pi I2C not available")
+            return
+
+        from datetime import datetime, timezone as tz_utc
+
+        now = datetime.now(tz_utc.utc)
+        try:
+            self._write_register(10, self._to_bcd(now.second))
+            self._write_register(11, self._to_bcd(now.minute))
+            self._write_register(12, self._to_bcd(now.hour))
+            self._write_register(14, self._to_bcd(now.day))
+            self._write_register(15, self._to_bcd(now.month))
+            self._write_register(16, self._to_bcd(now.year % 100))
+            logger.info(
+                "Witty Pi RTC synced to %04d-%02d-%02d %02d:%02d:%02d UTC",
+                now.year, now.month, now.day, now.hour, now.minute, now.second,
+            )
+        except OSError:
+            logger.exception("Failed to sync RTC")
+
     def set_startup_from_config(self) -> None:
         """Parse ``schedule.update_time`` / ``schedule.timezone`` from config,
-        convert to UTC, and set the startup alarm."""
+        convert to UTC, sync the Witty Pi RTC, and set the startup alarm."""
         from datetime import datetime
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
         from config import get_config
+
+        # Sync RTC first so alarm fires at the correct absolute time
+        self.sync_rtc()
 
         config = get_config()
         update_time = config.update_time  # e.g. "06:00"

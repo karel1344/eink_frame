@@ -19,6 +19,28 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Install system packages required for GPIO and I2C
+echo "Installing system packages..."
+apt-get update -qq
+apt-get install -y \
+    python3-venv \
+    python3-lgpio \
+    liblgpio-dev \
+    i2c-tools
+echo "System packages installed"
+
+# Enable I2C if not already enabled
+if ! grep -q "^dtparam=i2c_arm=on" /boot/firmware/config.txt 2>/dev/null && \
+   ! grep -q "^dtparam=i2c_arm=on" /boot/config.txt 2>/dev/null; then
+    echo "Enabling I2C in /boot/firmware/config.txt..."
+    echo "dtparam=i2c_arm=on" >> /boot/firmware/config.txt
+    echo "I2C enabled (reboot required for first-time setup)"
+fi
+
+# Add lgpio system package path to venv so pip-built lgpio isn't needed
+SYSTEM_PKGS_PATH="/usr/lib/python3/dist-packages"
+PTH_FILE="$PROJECT_DIR/venv/lib/python3.$(python3 -c 'import sys; print(sys.version_info.minor)')/site-packages/system.pth"
+
 # Create venv if not exists
 if [ ! -f "$VENV_PYTHON" ]; then
     echo "Creating Python virtual environment..."
@@ -26,15 +48,21 @@ if [ ! -f "$VENV_PYTHON" ]; then
     echo "Virtual environment created"
 fi
 
+# Expose system lgpio to venv (avoids building from source)
+if [ ! -f "$PTH_FILE" ] || ! grep -q "$SYSTEM_PKGS_PATH" "$PTH_FILE"; then
+    echo "$SYSTEM_PKGS_PATH" >> "$PTH_FILE"
+    echo "Linked system lgpio into venv"
+fi
+
 # Upgrade pip
 echo "Upgrading pip..."
 "$PROJECT_DIR/venv/bin/pip" install --upgrade pip
 
-# Install dependencies from requirements.txt
+# Install dependencies from requirements.txt (lgpio skipped — provided by system)
 REQUIREMENTS_FILE="$PROJECT_DIR/requirements.txt"
 if [ -f "$REQUIREMENTS_FILE" ]; then
     echo "Installing dependencies from requirements.txt..."
-    "$PROJECT_DIR/venv/bin/pip" install -r "$REQUIREMENTS_FILE"
+    "$PROJECT_DIR/venv/bin/pip" install -r "$REQUIREMENTS_FILE" --ignore-installed lgpio
     echo "Dependencies installed"
 else
     echo "Warning: requirements.txt not found at $REQUIREMENTS_FILE"
