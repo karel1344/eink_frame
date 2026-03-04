@@ -150,6 +150,14 @@ async def update_settings(settings: SettingsUpdate) -> ApiResponse:
 
     config.save()
 
+    # Apply startup alarm to Witty Pi immediately when schedule changes
+    if settings.schedule is not None:
+        try:
+            from power_manager import get_power_manager
+            get_power_manager().set_startup_from_config()
+        except Exception as e:
+            logger.warning("Failed to apply startup alarm to Witty Pi: %s", e)
+
     return ApiResponse(success=True, message="Settings saved")
 
 
