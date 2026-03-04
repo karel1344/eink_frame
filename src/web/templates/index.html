@@ -705,7 +705,8 @@
             </div>
 
             <div id="settings-status"></div>
-            <button class="btn btn-success btn-block" id="save-settings-btn" style="margin-bottom:16px">설정 저장</button>
+            <button class="btn btn-success btn-block" id="save-settings-btn" style="margin-bottom:8px">설정 저장</button>
+            <button class="btn btn-danger btn-block" id="save-shutdown-btn" style="margin-bottom:16px">저장 및 종료</button>
         </div>
     </div>
 
@@ -846,6 +847,7 @@
             var batteryIndicator = document.getElementById('battery-indicator');
             var localStorageLimit = document.getElementById('local-storage-limit');
             var saveSettingsBtn = document.getElementById('save-settings-btn');
+            var saveShutdownBtn = document.getElementById('save-shutdown-btn');
 
             // Tab switching
             var tabs = document.querySelectorAll('.tab');
@@ -971,10 +973,11 @@
             if (shutdownBtn) {
                 shutdownBtn.addEventListener('click', function() {
                     if (confirm('정말 종료하시겠습니까?')) {
-                        fetch('/api/system/shutdown', { method: 'POST' }).then(function() {
-                            alert('종료 중...');
+                        fetch('/api/system/shutdown', { method: 'POST' }).then(function(r) {
+                            if (r.ok) { alert('종료 중...'); }
+                            else { alert('종료 실패 (서버 오류)'); }
                         }).catch(function() {
-                            alert('종료 실패');
+                            alert('종료 실패 (네트워크 오류)');
                         });
                     }
                 });
@@ -1275,6 +1278,21 @@
                     }).catch(function() {
                         if (statusEl) statusEl.innerHTML = '<div class="alert alert-error">설정 저장 실패</div>';
                     });
+                });
+            }
+
+            // Save & Shutdown
+            if (saveShutdownBtn) {
+                saveShutdownBtn.addEventListener('click', function() {
+                    if (!confirm('설정을 저장하고 종료하시겠습니까?')) return;
+                    if (saveSettingsBtn) saveSettingsBtn.click();
+                    setTimeout(function() {
+                        fetch('/api/system/shutdown', { method: 'POST' }).then(function() {
+                            alert('종료 중...');
+                        }).catch(function() {
+                            alert('종료 실패');
+                        });
+                    }, 500);
                 });
             }
         });

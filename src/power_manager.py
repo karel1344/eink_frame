@@ -378,13 +378,14 @@ class PowerManager:
             get_db().set_state("last_battery_voltage", str(round(voltage, 2)))
             logger.info("Battery voltage at shutdown: %.2fV", voltage)
 
-        # 4. Power off
-        if self._dry_run or not self._available:
+        # 4. Dry-run: skip actual poweroff (dev environment only)
+        if self._dry_run:
             logger.info("Dry-run: would execute 'systemctl poweroff'")
             return
 
-        # 5. Signal Witty Pi via GPIO4 so it cuts 5V and re-arms the power button
-        self._signal_witty_pi_shutdown()
+        # 5. Signal Witty Pi via GPIO4 (only if Witty Pi hardware available)
+        if self._available:
+            self._signal_witty_pi_shutdown()
 
         logger.info("Initiating system poweroff...")
         subprocess.run(["sudo", "systemctl", "poweroff"], check=False)
