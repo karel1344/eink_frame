@@ -59,6 +59,7 @@ class PowerManager:
         self._dry_run = dry_run
         self._bus = None       # smbus2.SMBus instance
         self._available = False
+        self._smbus2_missing = False  # True if smbus2 not installed (no point retrying)
         self._init_i2c()
 
     # ------------------------------------------------------------------
@@ -70,8 +71,31 @@ class PowerManager:
             logger.info("PowerManager: dry-run mode, I2C disabled")
             return
 
+        # Signal SYS_UP to Witty Pi regardless of I2C status.
+        # Without this pulse, Witty Pi won't recognise the Pi as "running"
+        # and won't detect shutdown via TXD monitoring later.
+        self._signal_system_up()
+
+        self._try_connect_i2c()
+
+    def _try_connect_i2c(self) -> None:
+        """Single attempt to connect to Witty Pi over I2C.
+
+        Updates ``self._available`` on success. Safe to call repeatedly —
+        if smbus2 is not installed, marks ``_smbus2_missing`` and skips
+        future attempts.
+        """
+        if self._smbus2_missing:
+            return
+
         try:
             import smbus2
+        except ImportError:
+            logger.info("PowerManager: smbus2 not installed, running without I2C")
+            self._smbus2_missing = True
+            return
+
+        try:
             self._bus = smbus2.SMBus(_I2C_BUS)
             fw_id = self._bus.read_byte_data(_I2C_ADDR, _REG_FIRMWARE_ID)
             if fw_id != _FIRMWARE_ID:
@@ -81,10 +105,23 @@ class PowerManager:
                 )
             self._available = True
             logger.info("PowerManager: Witty Pi 4 L3V7 detected (firmware=0x%02X)", fw_id)
-        except ImportError:
-            logger.info("PowerManager: smbus2 not installed, running without I2C")
         except OSError as e:
-            logger.warning("PowerManager: I2C bus not accessible: %s", e)
+            self._available = False
+            logger.debug("PowerManager: I2C connect failed: %s", e)
+
+    def _ensure_connected(self) -> bool:
+        """Return True if Witty Pi I2C is available.
+
+        If not yet connected and not in dry-run mode, attempts a single
+        reconnection. This allows the service to recover automatically
+        if the Witty Pi was not ready at boot time.
+        """
+        if self._available:
+            return True
+        if self._dry_run or self._smbus2_missing:
+            return False
+        self._try_connect_i2c()
+        return self._available
 
     # ------------------------------------------------------------------
     # Low-level I2C helpers
@@ -131,7 +168,7 @@ class PowerManager:
 
     def read_input_voltage(self) -> float | None:
         """Read battery/USB input voltage (V).  Returns None if unavailable."""
-        if not self._available:
+        if not self._ensure_connected():
             return None
         try:
             return self._read_voltage_pair(_REG_VOLTAGE_IN_I, _REG_VOLTAGE_IN_D)
@@ -141,7 +178,7 @@ class PowerManager:
 
     def read_output_voltage(self) -> float | None:
         """Read 5 V rail output voltage (V)."""
-        if not self._available:
+        if not self._ensure_connected():
             return None
         try:
             return self._read_voltage_pair(_REG_VOLTAGE_OUT_I, _REG_VOLTAGE_OUT_D)
@@ -151,7 +188,7 @@ class PowerManager:
 
     def read_output_current(self) -> float | None:
         """Read output current (A)."""
-        if not self._available:
+        if not self._ensure_connected():
             return None
         try:
             return self._read_voltage_pair(_REG_CURRENT_OUT_I, _REG_CURRENT_OUT_D)
@@ -161,7 +198,7 @@ class PowerManager:
 
     def get_power_mode(self) -> str | None:
         """Return ``"usb"`` or ``"battery"``; ``None`` if unavailable."""
-        if not self._available:
+        if not self._ensure_connected():
             return None
         try:
             mode = self._read_register(_REG_POWER_MODE)
@@ -214,9 +251,10 @@ class PowerManager:
 
     def set_startup_alarm(self, hour: int, minute: int, second: int = 0) -> None:
         """Set daily startup alarm (day register = 0x80 = every day)."""
-        if not self._available:
-            logger.info(
-                "Dry-run: would set startup alarm to %02d:%02d:%02d", hour, minute, second,
+        if not self._ensure_connected():
+            logger.warning(
+                "Cannot set startup alarm to %02d:%02d:%02d: Witty Pi I2C not available",
+                hour, minute, second,
             )
             return
 
@@ -231,7 +269,7 @@ class PowerManager:
 
     def clear_startup_alarm(self) -> None:
         """Clear the startup alarm registers."""
-        if not self._available:
+        if not self._ensure_connected():
             return
         try:
             for reg in (_REG_ALARM1_SECOND, _REG_ALARM1_MINUTE,
@@ -282,9 +320,10 @@ class PowerManager:
 
     def set_shutdown_alarm(self, hour: int, minute: int, second: int = 0) -> None:
         """Set daily shutdown alarm."""
-        if not self._available:
-            logger.info(
-                "Dry-run: would set shutdown alarm to %02d:%02d:%02d", hour, minute, second,
+        if not self._ensure_connected():
+            logger.warning(
+                "Cannot set shutdown alarm to %02d:%02d:%02d: Witty Pi I2C not available",
+                hour, minute, second,
             )
             return
 
@@ -307,8 +346,7 @@ class PowerManager:
         The register stores voltage × 10 as a single byte
         (e.g. 3.0 V → 30).  Set to 0xFF to disable.
         """
-        if not self._available:
-            logger.info("Dry-run: would set low-voltage threshold to %.1fV", voltage)
+        if not self._ensure_connected():
             return
         try:
             self._write_register(_REG_LV_THRESHOLD, int(voltage * 10))
@@ -318,7 +356,7 @@ class PowerManager:
 
     def set_recovery_voltage(self, voltage: float) -> None:
         """Set the recovery voltage (V × 10)."""
-        if not self._available:
+        if not self._ensure_connected():
             return
         try:
             self._write_register(_REG_RECOVERY_VOLTAGE, int(voltage * 10))
@@ -330,20 +368,21 @@ class PowerManager:
     # Public: graceful shutdown sequence
     # ------------------------------------------------------------------
 
-    def _signal_witty_pi_shutdown(self) -> None:
-        """Pull GPIO4 LOW to signal Witty Pi that the Pi is shutting down.
+    def _signal_system_up(self) -> None:
+        """Pulse GPIO17 (SYS_UP) to notify Witty Pi that the Pi is running.
 
-        Witty Pi 4 monitors GPIO4 (BCM) / BOARD pin 7 as the "sys_boot" signal.
-        HIGH = Pi running, LOW = Pi halted → Witty Pi cuts 5V and re-arms button.
-        Without this signal, the Pi halts but Witty Pi keeps power on and ignores
-        the button press.
+        The Witty Pi 4 L3V7 firmware requires 2× HIGH/LOW pulses on GPIO17
+        (BCM) at boot time to mark the Pi as "system up". Until this signal is
+        received, the Witty Pi will NOT treat a subsequent TXD-line drop as a
+        valid shutdown, so it will not cut 5V power after halt.
+
+        Reference: official Witty Pi 4 daemon.sh (uugear/Witty-Pi-4)
         """
         import time
 
         _GPIO_SYSFS = "/sys/class/gpio"
-        _GPIO_PIN = "4"  # BCM GPIO4 = BOARD pin 7
+        _GPIO_PIN = "17"  # BCM GPIO17 = SYS_UP signal to Witty Pi
         try:
-            # Export pin (ignore error if already exported)
             try:
                 with open(f"{_GPIO_SYSFS}/export", "w") as f:
                     f.write(_GPIO_PIN)
@@ -352,13 +391,28 @@ class PowerManager:
 
             with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/direction", "w") as f:
                 f.write("out")
-            with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/value", "w") as f:
-                f.write("0")
 
-            time.sleep(1)  # Give Witty Pi time to detect the LOW signal
-            logger.info("GPIO4 pulled LOW — Witty Pi notified of shutdown")
+            # 2× HIGH/LOW pulses (matches official daemon.sh behaviour)
+            for _ in range(2):
+                with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/value", "w") as f:
+                    f.write("1")
+                time.sleep(0.1)
+                with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/value", "w") as f:
+                    f.write("0")
+                time.sleep(0.1)
+
+            # Release pin back to input and unexport
+            with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/direction", "w") as f:
+                f.write("in")
+            try:
+                with open(f"{_GPIO_SYSFS}/unexport", "w") as f:
+                    f.write(_GPIO_PIN)
+            except OSError:
+                pass
+
+            logger.info("GPIO17 SYS_UP signal sent — Witty Pi notified Pi is running")
         except Exception as e:
-            logger.warning("Failed to signal Witty Pi via GPIO4: %s", e)
+            logger.warning("Failed to send SYS_UP signal to Witty Pi: %s", e)
 
     def schedule_and_shutdown(self) -> None:
         """Full shutdown: set next startup alarm → save state → poweroff."""
@@ -383,10 +437,8 @@ class PowerManager:
             logger.info("Dry-run: would execute 'systemctl poweroff'")
             return
 
-        # 5. Signal Witty Pi via GPIO4 (only if Witty Pi hardware available)
-        if self._available:
-            self._signal_witty_pi_shutdown()
-
+        # 5. Poweroff — Witty Pi detects halt by monitoring the TXD (UART TX)
+        #    line going permanently LOW. No explicit GPIO signal needed from Pi.
         logger.info("Initiating system poweroff...")
         subprocess.run(["sudo", "systemctl", "poweroff"], check=False)
 

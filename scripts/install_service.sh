@@ -40,6 +40,13 @@ else
     echo "Warning: requirements.txt not found at $REQUIREMENTS_FILE"
 fi
 
+# Stop service if currently running (before overwriting unit file)
+if systemctl is-active --quiet ${SERVICE_NAME}.service; then
+    echo "Stopping running ${SERVICE_NAME} service..."
+    systemctl stop ${SERVICE_NAME}.service
+    echo "Service stopped"
+fi
+
 # Generate service file from current paths
 cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
@@ -67,13 +74,6 @@ WantedBy=multi-user.target
 EOF
 
 echo "Generated service file"
-
-# Stop service if currently running (before reloading daemon)
-if systemctl is-active --quiet ${SERVICE_NAME}.service; then
-    echo "Stopping running ${SERVICE_NAME} service..."
-    systemctl stop ${SERVICE_NAME}.service
-    echo "Service stopped"
-fi
 
 # Reload systemd
 systemctl daemon-reload
