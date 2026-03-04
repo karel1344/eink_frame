@@ -100,9 +100,10 @@ async def get_status():
     from power_manager import get_power_manager
 
     battery = get_power_manager().get_battery_status()
+    wifi_connected = get_wifi_manager().get_status().connected
     return StatusResponse(
         battery=battery,
-        wifi_connected=False,  # In AP mode
+        wifi_connected=wifi_connected,
         last_update=None,
         next_update=get_config().update_time,
         current_photo=None,

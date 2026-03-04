@@ -914,6 +914,8 @@
                 return response.json();
             }).then(function(status) {
                 if (batteryStatus) batteryStatus.textContent = '배터리: ' + status.battery.percentage + '%';
+                var connEl = document.getElementById('connection-status');
+                if (connEl) connEl.textContent = status.wifi_connected ? 'WiFi 연결됨' : 'AP 모드';
             }).catch(function(error) {
                 console.error('Failed to load status:', error);
             });

@@ -330,6 +330,36 @@ class PowerManager:
     # Public: graceful shutdown sequence
     # ------------------------------------------------------------------
 
+    def _signal_witty_pi_shutdown(self) -> None:
+        """Pull GPIO4 LOW to signal Witty Pi that the Pi is shutting down.
+
+        Witty Pi 4 monitors GPIO4 (BCM) / BOARD pin 7 as the "sys_boot" signal.
+        HIGH = Pi running, LOW = Pi halted → Witty Pi cuts 5V and re-arms button.
+        Without this signal, the Pi halts but Witty Pi keeps power on and ignores
+        the button press.
+        """
+        import time
+
+        _GPIO_SYSFS = "/sys/class/gpio"
+        _GPIO_PIN = "4"  # BCM GPIO4 = BOARD pin 7
+        try:
+            # Export pin (ignore error if already exported)
+            try:
+                with open(f"{_GPIO_SYSFS}/export", "w") as f:
+                    f.write(_GPIO_PIN)
+            except OSError:
+                pass  # Already exported
+
+            with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/direction", "w") as f:
+                f.write("out")
+            with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/value", "w") as f:
+                f.write("0")
+
+            time.sleep(1)  # Give Witty Pi time to detect the LOW signal
+            logger.info("GPIO4 pulled LOW — Witty Pi notified of shutdown")
+        except Exception as e:
+            logger.warning("Failed to signal Witty Pi via GPIO4: %s", e)
+
     def schedule_and_shutdown(self) -> None:
         """Full shutdown: set next startup alarm → save state → poweroff."""
         from config import get_config
@@ -352,6 +382,9 @@ class PowerManager:
         if self._dry_run or not self._available:
             logger.info("Dry-run: would execute 'systemctl poweroff'")
             return
+
+        # 5. Signal Witty Pi via GPIO4 so it cuts 5V and re-arms the power button
+        self._signal_witty_pi_shutdown()
 
         logger.info("Initiating system poweroff...")
         subprocess.run(["sudo", "systemctl", "poweroff"], check=False)
