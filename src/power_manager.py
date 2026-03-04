@@ -38,18 +38,23 @@ _REG_LV_THRESHOLD = 19      # Low-voltage threshold
 _REG_RECOVERY_VOLTAGE = 22  # Recovery voltage
 
 # Startup alarm (Alarm 1) — BCD encoded
-_REG_ALARM1_SECOND = 27
-_REG_ALARM1_MINUTE = 28
-_REG_ALARM1_HOUR = 29
-_REG_ALARM1_DAY = 30
+_REG_ALARM1_SECOND  = 27
+_REG_ALARM1_MINUTE  = 28
+_REG_ALARM1_HOUR    = 29
+_REG_ALARM1_DAY     = 30
+_REG_ALARM1_WEEKDAY = 31
 
 # Shutdown alarm (Alarm 2) — BCD encoded
-_REG_ALARM2_SECOND = 32
-_REG_ALARM2_MINUTE = 33
-_REG_ALARM2_HOUR = 34
-_REG_ALARM2_DAY = 35
+_REG_ALARM2_SECOND  = 32
+_REG_ALARM2_MINUTE  = 33
+_REG_ALARM2_HOUR    = 34
+_REG_ALARM2_DAY     = 35
+_REG_ALARM2_WEEKDAY = 36
 
-_ALARM_DAY_EVERY_DAY = 0x80  # Wildcard: trigger every day
+# _REG_ALARM1_WEEKDAY (31) and _REG_ALARM2_WEEKDAY (36) are intentionally
+# never written by user code. The ATtiny firmware manages these registers
+# exclusively (sets 0x80 two seconds before alarm fires via reset_rtc_alarm).
+# Writing to them will corrupt the alarm state.
 
 
 class PowerManager:
@@ -249,32 +254,40 @@ class PowerManager:
     # Public: startup alarm
     # ------------------------------------------------------------------
 
-    def set_startup_alarm(self, hour: int, minute: int, second: int = 0) -> None:
-        """Set daily startup alarm (day register = 0x80 = every day)."""
+    def set_startup_alarm(self, hour: int, minute: int, second: int, day: int) -> None:
+        """Set startup alarm to an absolute date+time (UTC).
+
+        All fields written as BCD. Weekday register (31) is intentionally
+        not touched — managed exclusively by ATtiny firmware.
+        """
         if not self._ensure_connected():
             logger.warning(
-                "Cannot set startup alarm to %02d:%02d:%02d: Witty Pi I2C not available",
-                hour, minute, second,
+                "Cannot set startup alarm to day=%02d %02d:%02d:%02d: Witty Pi I2C not available",
+                day, hour, minute, second,
             )
             return
 
         try:
             self._write_register(_REG_ALARM1_SECOND, self._to_bcd(second))
             self._write_register(_REG_ALARM1_MINUTE, self._to_bcd(minute))
-            self._write_register(_REG_ALARM1_HOUR, self._to_bcd(hour))
-            self._write_register(_REG_ALARM1_DAY, _ALARM_DAY_EVERY_DAY)
-            logger.info("Startup alarm set: every day at %02d:%02d:%02d", hour, minute, second)
+            self._write_register(_REG_ALARM1_HOUR,   self._to_bcd(hour))
+            self._write_register(_REG_ALARM1_DAY,    self._to_bcd(day))
+            # _REG_ALARM1_WEEKDAY (31) intentionally not written
+            logger.info(
+                "Startup alarm set: day=%02d %02d:%02d:%02d UTC", day, hour, minute, second
+            )
         except OSError:
             logger.exception("Failed to set startup alarm")
 
     def clear_startup_alarm(self) -> None:
-        """Clear the startup alarm registers."""
+        """Clear the startup alarm registers (sec/min/hour/day only)."""
         if not self._ensure_connected():
             return
         try:
             for reg in (_REG_ALARM1_SECOND, _REG_ALARM1_MINUTE,
                         _REG_ALARM1_HOUR, _REG_ALARM1_DAY):
                 self._write_register(reg, 0x00)
+            # _REG_ALARM1_WEEKDAY (31) intentionally not cleared
             logger.info("Startup alarm cleared")
         except OSError:
             logger.exception("Failed to clear startup alarm")
@@ -287,9 +300,9 @@ class PowerManager:
         """Write the Pi's current UTC time to the Witty Pi RTC registers.
 
         Should be called after NTP sync to ensure the Witty Pi wakes up
-        at the correct time. Witty Pi 4 L3V7 uses PCF85063 RTC via STM32,
-        exposed as virtual I2C registers (BCD encoded):
-          58=sec, 59=min, 60=hour, 61=day, 63=month, 64=year (00-99)
+        at the correct time. PCF85063 RTC registers exposed via ATtiny (BCD):
+          58=sec, 59=min, 60=hour, 61=day, 62=weekday, 63=month, 64=year (00-99)
+        Weekday uses ISO convention: 1=Mon … 7=Sun (matches ``date +%u``).
         """
         if not self._ensure_connected():
             logger.warning("Cannot sync RTC: Witty Pi I2C not available")
@@ -305,6 +318,7 @@ class PowerManager:
             self._write_register(59, self._to_bcd(now.minute))
             self._write_register(60, self._to_bcd(now.hour))
             self._write_register(61, self._to_bcd(now.day))
+            self._write_register(62, self._to_bcd(now.isoweekday()))  # 1=Mon…7=Sun
             self._write_register(63, self._to_bcd(now.month))
             self._write_register(64, self._to_bcd(now.year % 100))
             logger.info(
@@ -316,13 +330,14 @@ class PowerManager:
 
     def set_startup_from_config(self) -> None:
         """Parse ``schedule.update_time`` / ``schedule.timezone`` from config,
-        convert to UTC, sync the Witty Pi RTC, and set the startup alarm."""
-        from datetime import datetime
+        compute the next alarm datetime (today or tomorrow), sync the RTC,
+        and set the startup alarm with an absolute day+time."""
+        from datetime import datetime, timedelta
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
         from config import get_config
 
-        # Sync RTC first so alarm fires at the correct absolute time
+        # Sync RTC first so the ATtiny has accurate time to compare against
         self.sync_rtc()
 
         config = get_config()
@@ -334,43 +349,64 @@ class PowerManager:
 
         try:
             tz = ZoneInfo(timezone_str)
-            local_dt = datetime.now(tz).replace(
+            now_local = datetime.now(tz)
+            # Build today's alarm in local time
+            alarm_local = now_local.replace(
                 hour=local_hour, minute=local_minute, second=0, microsecond=0
             )
-            utc_dt = local_dt.astimezone(ZoneInfo("UTC"))
-            hour, minute = utc_dt.hour, utc_dt.minute
+            # If alarm has already passed today, schedule for tomorrow
+            if alarm_local <= now_local:
+                alarm_local += timedelta(days=1)
+            utc_alarm = alarm_local.astimezone(ZoneInfo("UTC"))
             logger.info(
-                "Startup alarm: %s %02d:%02d → UTC %02d:%02d",
-                timezone_str, local_hour, local_minute, hour, minute,
+                "Startup alarm: %s %02d:%02d → UTC day=%02d %02d:%02d:%02d",
+                timezone_str, local_hour, local_minute,
+                utc_alarm.day, utc_alarm.hour, utc_alarm.minute, utc_alarm.second,
             )
         except (ZoneInfoNotFoundError, Exception) as e:
-            logger.warning(
-                "Timezone '%s' conversion failed, using time as-is: %s",
-                timezone_str, e,
+            logger.warning("Timezone '%s' conversion failed, using UTC: %s", timezone_str, e)
+            from datetime import timezone
+            now_utc = datetime.now(timezone.utc)
+            utc_alarm = now_utc.replace(
+                hour=local_hour, minute=local_minute, second=0, microsecond=0
             )
-            hour, minute = local_hour, local_minute
+            if utc_alarm <= now_utc:
+                utc_alarm += timedelta(days=1)
 
-        self.set_startup_alarm(hour, minute)
+        self.set_startup_alarm(utc_alarm.hour, utc_alarm.minute, 0, utc_alarm.day)
 
     # ------------------------------------------------------------------
     # Public: shutdown alarm
     # ------------------------------------------------------------------
 
-    def set_shutdown_alarm(self, hour: int, minute: int, second: int = 0) -> None:
-        """Set daily shutdown alarm."""
+    def set_shutdown_alarm(
+        self, hour: int, minute: int, second: int = 0, day: int | None = None
+    ) -> None:
+        """Set shutdown alarm to an absolute date+time (UTC).
+
+        ``day`` defaults to today (UTC) when not provided.
+        Weekday register (36) is intentionally not touched.
+        """
+        if day is None:
+            from datetime import datetime, timezone
+            day = datetime.now(timezone.utc).day
+
         if not self._ensure_connected():
             logger.warning(
-                "Cannot set shutdown alarm to %02d:%02d:%02d: Witty Pi I2C not available",
-                hour, minute, second,
+                "Cannot set shutdown alarm to day=%02d %02d:%02d:%02d: Witty Pi I2C not available",
+                day, hour, minute, second,
             )
             return
 
         try:
             self._write_register(_REG_ALARM2_SECOND, self._to_bcd(second))
             self._write_register(_REG_ALARM2_MINUTE, self._to_bcd(minute))
-            self._write_register(_REG_ALARM2_HOUR, self._to_bcd(hour))
-            self._write_register(_REG_ALARM2_DAY, _ALARM_DAY_EVERY_DAY)
-            logger.info("Shutdown alarm set: every day at %02d:%02d:%02d", hour, minute, second)
+            self._write_register(_REG_ALARM2_HOUR,   self._to_bcd(hour))
+            self._write_register(_REG_ALARM2_DAY,    self._to_bcd(day))
+            # _REG_ALARM2_WEEKDAY (36) intentionally not written
+            logger.info(
+                "Shutdown alarm set: day=%02d %02d:%02d:%02d UTC", day, hour, minute, second
+            )
         except OSError:
             logger.exception("Failed to set shutdown alarm")
 
