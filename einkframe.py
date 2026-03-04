@@ -53,6 +53,7 @@ def run_production():
     import uvicorn
     from src.startup import run_startup
     from src.web.app import app
+    from src.power_manager import get_power_manager
 
     logger.info("=" * 50)
     logger.info("E-Ink Photo Frame - Production Mode")
@@ -60,6 +61,11 @@ def run_production():
 
     state = run_startup()
     logger.info(f"Startup complete, state: {state}")
+
+    # Initialize PowerManager immediately at startup:
+    # - Sends GPIO17 SYS_UP pulse so Witty Pi knows Pi is running
+    # - Attempts I2C connection to Witty Pi for alarm/battery management
+    get_power_manager()
 
     port = 80 if state == "ap_mode" else 8000
     logger.info(f"Starting web server on port {port}")
