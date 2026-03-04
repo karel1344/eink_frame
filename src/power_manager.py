@@ -376,41 +376,33 @@ class PowerManager:
         received, the Witty Pi will NOT treat a subsequent TXD-line drop as a
         valid shutdown, so it will not cut 5V power after halt.
 
+        Uses gpiozero + lgpio (character device interface) which works on
+        Raspberry Pi OS Bookworm where the legacy sysfs GPIO is unreliable.
+
         Reference: official Witty Pi 4 daemon.sh (uugear/Witty-Pi-4)
         """
         import time
 
-        _GPIO_SYSFS = "/sys/class/gpio"
-        _GPIO_PIN = "17"  # BCM GPIO17 = SYS_UP signal to Witty Pi
+        _GPIO_PIN = 17  # BCM GPIO17 = SYS_UP signal to Witty Pi
+
         try:
+            from gpiozero import OutputDevice
+            pin = OutputDevice(_GPIO_PIN, active_high=True, initial_value=False)
             try:
-                with open(f"{_GPIO_SYSFS}/export", "w") as f:
-                    f.write(_GPIO_PIN)
-            except OSError:
-                pass  # Already exported
-
-            with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/direction", "w") as f:
-                f.write("out")
-
-            # 2× HIGH/LOW pulses (matches official daemon.sh behaviour)
-            for _ in range(2):
-                with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/value", "w") as f:
-                    f.write("1")
-                time.sleep(0.1)
-                with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/value", "w") as f:
-                    f.write("0")
-                time.sleep(0.1)
-
-            # Release pin back to input and unexport
-            with open(f"{_GPIO_SYSFS}/gpio{_GPIO_PIN}/direction", "w") as f:
-                f.write("in")
-            try:
-                with open(f"{_GPIO_SYSFS}/unexport", "w") as f:
-                    f.write(_GPIO_PIN)
-            except OSError:
-                pass
-
-            logger.info("GPIO17 SYS_UP signal sent — Witty Pi notified Pi is running")
+                # 2× HIGH/LOW pulses (matches official daemon.sh behaviour)
+                for _ in range(2):
+                    pin.on()
+                    time.sleep(0.1)
+                    pin.off()
+                    time.sleep(0.1)
+                logger.info("GPIO17 SYS_UP signal sent — Witty Pi notified Pi is running")
+            finally:
+                pin.close()
+        except ImportError:
+            logger.warning(
+                "gpiozero not installed — SYS_UP signal not sent. "
+                "Run: pip install gpiozero lgpio"
+            )
         except Exception as e:
             logger.warning("Failed to send SYS_UP signal to Witty Pi: %s", e)
 
