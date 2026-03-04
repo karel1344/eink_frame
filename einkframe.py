@@ -62,12 +62,13 @@ def run_production():
     state = run_startup()
     logger.info(f"Startup complete, state: {state}")
 
-    # Initialize PowerManager immediately at startup:
-    # - Sends GPIO17 SYS_UP pulse so Witty Pi knows Pi is running
-    # - Attempts I2C connection to Witty Pi for alarm/battery management
-    # - Syncs Witty Pi RTC from Pi system time (NTP synced) so alarms fire correctly
-    pm = get_power_manager()
-    pm.sync_rtc()
+    # Initialize PowerManager: sends GPIO17 SYS_UP pulse so Witty Pi
+    # knows Pi is running (required for power-cut detection at shutdown).
+    # RTC sync and alarm setting are intentionally NOT done here —
+    # Pi system time is not yet NTP-synced at this point. Sync + alarm
+    # are only written in schedule_and_shutdown(), which is triggered by
+    # the user after WiFi has been active long enough for NTP to settle.
+    get_power_manager()
 
     port = 80 if state == "ap_mode" else 8000
     logger.info(f"Starting web server on port {port}")
