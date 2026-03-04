@@ -504,7 +504,14 @@
             padding: 32px 0;
             color: #aaa;
         }
+        /* Crop modal */
+        .modal-wide { max-width: 700px; }
+        .crop-container { max-height: 58vh; overflow: hidden; background: #000; }
+        .crop-container img { display: block; max-width: 100%; }
+        .crop-info { color: #888; font-size: 0.82rem; margin-bottom: 8px; }
     </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
 </head>
 <body>
     <header>
@@ -699,6 +706,27 @@
 
             <div id="settings-status"></div>
             <button class="btn btn-success btn-block" id="save-settings-btn" style="margin-bottom:16px">설정 저장</button>
+        </div>
+    </div>
+
+    <!-- Crop Modal -->
+    <div id="crop-modal" class="modal-overlay">
+        <div class="modal modal-wide">
+            <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>사진 영역 선택</span>
+                <span id="crop-file-counter" style="font-weight:400;color:#888;font-size:0.85rem;"></span>
+            </div>
+            <div class="modal-body">
+                <p class="crop-info" id="crop-info"></p>
+                <div class="crop-container">
+                    <img id="crop-image" src="" alt="crop">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="crop-cancel-btn">취소</button>
+                <button class="btn" id="crop-skip-btn">원본 그대로</button>
+                <button class="btn btn-primary" id="crop-confirm-btn">업로드</button>
+            </div>
         </div>
     </div>
 
@@ -1009,41 +1037,125 @@
                 }).catch(function() { alert('삭제 실패'); });
             }
 
-            function uploadFiles(files) {
+            // ── Crop & Upload ──────────────────────────────────────────
+            var cropperInstance = null;
+            var cropQueue = [];
+            var cropCurrentFile = null;
+            var DISPLAY_DIMS = { '7in3e': {w:800,h:480}, '13in3e': {w:1200,h:1600} };
+
+            function getDisplayAspect() {
+                var model = (currentSettings.display && currentSettings.display.model) || '7in3e';
+                var rotation = parseInt((currentSettings.display && currentSettings.display.rotation) || 0);
+                var dims = DISPLAY_DIMS[model] || {w:800,h:480};
+                var w = (rotation === 90 || rotation === 270) ? dims.h : dims.w;
+                var h = (rotation === 90 || rotation === 270) ? dims.w : dims.h;
+                return { w: w, h: h, ratio: w / h };
+            }
+
+            function queueCropAndUpload(files) {
+                cropQueue = Array.from(files);
+                processCropQueue();
+            }
+
+            function processCropQueue() {
+                if (cropQueue.length === 0) { loadPhotos(); return; }
+                cropCurrentFile = cropQueue.shift();
+                showCropModal(cropCurrentFile, cropQueue.length);
+            }
+
+            function showCropModal(file, remaining) {
+                var modal = document.getElementById('crop-modal');
+                var img = document.getElementById('crop-image');
+                if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+
+                var aspect = getDisplayAspect();
+                document.getElementById('crop-info').textContent =
+                    '디스플레이 비율: ' + aspect.w + ' × ' + aspect.h + 'px  ·  ' + file.name;
+                document.getElementById('crop-file-counter').textContent =
+                    remaining > 0 ? '(' + remaining + '개 더 대기 중)' : '';
+
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    img.onload = function() {
+                        cropperInstance = new Cropper(img, {
+                            aspectRatio: aspect.ratio,
+                            viewMode: 1,
+                            autoCropArea: 1.0,
+                            dragMode: 'move',
+                            guides: true,
+                            toggleDragModeOnDblclick: false,
+                        });
+                    };
+                    img.src = e.target.result;
+                    modal.classList.add('visible');
+                };
+                reader.readAsDataURL(file);
+            }
+
+            function closeCropModal() {
+                document.getElementById('crop-modal').classList.remove('visible');
+                if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+            }
+
+            function doUpload(file, blob) {
                 var statusEl = document.getElementById('upload-status');
-                var pending = Array.from(files);
-
-                function uploadNext() {
-                    if (pending.length === 0) {
-                        if (statusEl) statusEl.innerHTML = '';
-                        loadPhotos();
-                        return;
-                    }
-                    var file = pending.shift();
-                    if (statusEl) statusEl.innerHTML = '<div class="alert alert-info">' + file.name + ' 업로드 중…</div>';
-
-                    var fd = new FormData();
+                var fd = new FormData();
+                if (blob) {
+                    fd.append('file', blob, file.name);
+                } else {
                     fd.append('file', file);
-
-                    fetch('/api/photos/upload', { method: 'POST', body: fd }).then(function(r) {
-                        return r.json();
-                    }).then(function(data) {
+                }
+                if (statusEl) statusEl.innerHTML = '<div class="alert alert-info">' + file.name + ' 업로드 중…</div>';
+                fetch('/api/photos/upload', { method: 'POST', body: fd })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
                         if (!data.success) {
                             if (statusEl) statusEl.innerHTML = '<div class="alert alert-error">' + (data.detail || data.message) + '</div>';
-                            setTimeout(function() { if (statusEl) statusEl.innerHTML = ''; uploadNext(); }, 2500);
+                            setTimeout(function() { if (statusEl) statusEl.innerHTML = ''; processCropQueue(); }, 2500);
                         } else {
-                            uploadNext();
+                            if (statusEl) statusEl.innerHTML = '';
+                            processCropQueue();
                         }
                     }).catch(function() {
                         if (statusEl) statusEl.innerHTML = '<div class="alert alert-error">업로드 실패</div>';
-                        setTimeout(function() { if (statusEl) statusEl.innerHTML = ''; uploadNext(); }, 2500);
+                        setTimeout(function() { if (statusEl) statusEl.innerHTML = ''; processCropQueue(); }, 2500);
                     });
-                }
-
-                uploadNext();
             }
 
-            // Upload area click
+            var cropConfirmBtn = document.getElementById('crop-confirm-btn');
+            var cropSkipBtn = document.getElementById('crop-skip-btn');
+            var cropCancelBtn = document.getElementById('crop-cancel-btn');
+
+            if (cropConfirmBtn) {
+                cropConfirmBtn.addEventListener('click', function() {
+                    if (!cropperInstance || !cropCurrentFile) return;
+                    var file = cropCurrentFile;
+                    var canvas = cropperInstance.getCroppedCanvas();
+                    closeCropModal();
+                    canvas.toBlob(function(blob) { doUpload(file, blob); },
+                        file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.92);
+                });
+            }
+
+            if (cropSkipBtn) {
+                cropSkipBtn.addEventListener('click', function() {
+                    if (!cropCurrentFile) return;
+                    var file = cropCurrentFile;
+                    closeCropModal();
+                    doUpload(file, null);
+                });
+            }
+
+            if (cropCancelBtn) {
+                cropCancelBtn.addEventListener('click', function() {
+                    closeCropModal();
+                    cropQueue = [];
+                    cropCurrentFile = null;
+                    loadPhotos();
+                });
+            }
+
+            // Upload area events
             var uploadArea = document.getElementById('upload-area');
             var fileInput = document.getElementById('file-input');
 
@@ -1061,13 +1173,13 @@
                     e.preventDefault();
                     uploadArea.classList.remove('drag-over');
                     if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-                        uploadFiles(e.dataTransfer.files);
+                        queueCropAndUpload(e.dataTransfer.files);
                     }
                 });
 
                 fileInput.addEventListener('change', function() {
                     if (fileInput.files && fileInput.files.length > 0) {
-                        uploadFiles(fileInput.files);
+                        queueCropAndUpload(fileInput.files);
                         fileInput.value = '';
                     }
                 });

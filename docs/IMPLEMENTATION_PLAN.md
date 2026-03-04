@@ -6,8 +6,8 @@
 |----------|--------|
 | 인프라/설정 | 100% |
 | WiFi/AP 모드 | 80% |
-| 웹 UI | 70% |
-| 사진 소스 | 60% |
+| 웹 UI | 80% |
+| 사진 소스 | 75% |
 | 이미지 처리 | 100% |
 | 디스플레이 드라이버 | 100% |
 | 전원 관리 | 0% |
@@ -122,7 +122,7 @@
 - [x] **web/templates/index.html** - 메인 UI
   - WiFi 설정 탭 (스캔, 연결, Apply & Connect)
   - 사진 갤러리 탭 (업로드, 썸네일 그리드, 삭제)
-  - 설정 탭 (스케줄, 사진 선택, 디스플레이, 배터리)
+  - 설정 탭 (스케줄, 사진 선택, 디스플레이 모델/회전, 이미지 처리, 저장소 용량, 배터리)
 
 - [x] **web/templates/captive.html** - 캡티브 포털 랜딩
   - AP 접속 안내
@@ -140,7 +140,7 @@
 
 ---
 
-## Phase 4: 사진 소스 - 60% 완료
+## Phase 4: 사진 소스 - 75% 완료
 
 ### 완료 ✅
 
@@ -154,6 +154,15 @@
   - 파일 업로드 처리
   - 지원 포맷: JPEG, PNG, HEIC (pillow-heif)
 
+- [x] **photo_selector.py** - 사진 선택 로직
+  - random / sequential 모드
+  - 반복 방지 (최근 N장 제외, 기본 30장)
+  - 모든 소스 통합 선택 (local + 미래의 google 소스)
+
+- [x] **frame_runner.py** - 사진 표시 루프
+  - 소스 초기화 → 사진 선택 → 이미지 처리 → 디스플레이 출력 → DB 기록
+  - `--dry-run` 모드: `debug_output.png`로 저장 (Mac 테스트용)
+
 ### 미완료 ❌
 
 - [ ] **photo_source/google_photos.py** - Google Photos API
@@ -165,11 +174,6 @@
   - 용량 관리 (LRU 알고리즘 구현)
   - 삭제 여부 트래킹 (재다운로드 가능)
   - 다운로드 실패 시 로컬 사진 폴백
-
-- [ ] **사진 선택 로직**
-  - 순차/랜덤/날짜 기반 선택
-  - 반복 방지 (최근 N장, 기본 30장)
-  - 로컬 + Google 통합 선택
 
 ---
 
@@ -197,15 +201,16 @@
   - EinkDisplay 인터페이스 (width, height, color_mode)
   - init(), show(), clear(), sleep() 추상 메서드
 
-- [x] **display/display_7in3e.py** - 7.3" 6색 드라이버 래퍼
-  - 800×480 해상도
-  - 지연 임포트 (Mac 호환)
+- [x] **display/epd7in3e/** - 7.3" Spectra 6색 드라이버
+  - `__init__.py` — Display7in3e 래퍼 (800×480, 지연 임포트로 Mac 호환)
+  - `driver.py` — Waveshare EPD 드라이버 (spidev + gpiozero)
+  - `config.py` — GPIO/SPI 설정
 
-- [x] **display/display_13in3k.py** - 13.3" 4단계 회색 드라이버 래퍼
-  - 960×680 해상도
-  - 4GRAY 모드 (init_4GRAY, display_4Gray)
-
-- [x] **display/epd7in3e.py, epd13in3k.py, epdconfig.py** - Waveshare 공식 드라이버
+- [x] **display/epd13in3e/** - 13.3" Spectra 6색 드라이버
+  - `__init__.py` — Display13in3e 래퍼 (1200×1600 네이티브, 지연 임포트로 Mac 호환)
+  - `driver.py` — Waveshare EPD 드라이버 (Dual CS: CS_M 왼쪽 600px, CS_S 오른쪽 600px)
+  - `config.py` — GPIO/SPI 설정 (.so C 공유 라이브러리 기반, Pi5 자동 감지)
+  - `DEV_Config_*.so` — Waveshare C 라이브러리 (32/64bit, Pi4/Pi5 각 버전)
 
 ---
 
@@ -320,8 +325,8 @@
 ## 다음 구현 순서 (권장)
 
 ### 높음 (핵심)
-1. ~~**웹 UI 설정 탭**~~ → **진행 중**
-2. **사진 표시 루프** — 사진 선택 → ImageProcessor → 디스플레이 출력 → 종료
+1. ~~**웹 UI 설정 탭**~~ ✅ 완료
+2. ~~**사진 표시 루프**~~ ✅ 완료 (`frame_runner.py`, `photo_selector.py`)
 3. **power_manager.py** — Witty Pi 배터리/스케줄
 4. **state_machine.py** — 전체 흐름 제어
 
@@ -354,4 +359,4 @@ Pi 필요:
 
 ---
 
-*마지막 업데이트: 2026-03-04 (image_processor, display 드라이버, 배터리 아이콘 구현 완료 / 설정 UI 진행 중)*
+*마지막 업데이트: 2026-03-04 (사진 표시 루프 완료: frame_runner.py, photo_selector.py)*
