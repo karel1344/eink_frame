@@ -68,6 +68,13 @@ EOF
 
 echo "Generated service file"
 
+# Stop service if currently running (before reloading daemon)
+if systemctl is-active --quiet ${SERVICE_NAME}.service; then
+    echo "Stopping running ${SERVICE_NAME} service..."
+    systemctl stop ${SERVICE_NAME}.service
+    echo "Service stopped"
+fi
+
 # Reload systemd
 systemctl daemon-reload
 echo "Reloaded systemd daemon"
@@ -81,13 +88,18 @@ if [ -f "$SCRIPT_DIR/install_recovery.sh" ]; then
     bash "$SCRIPT_DIR/install_recovery.sh"
 fi
 
+# Start service now
+echo "Starting ${SERVICE_NAME} service..."
+systemctl start ${SERVICE_NAME}.service
+echo "Service started"
+
 echo ""
 echo "Installation complete!"
 echo ""
 echo "Commands:"
-echo "  sudo systemctl start ${SERVICE_NAME}    # Start now"
 echo "  sudo systemctl stop ${SERVICE_NAME}     # Stop"
+echo "  sudo systemctl restart ${SERVICE_NAME}  # Restart"
 echo "  sudo systemctl status ${SERVICE_NAME}   # Check status"
 echo "  sudo journalctl -u ${SERVICE_NAME} -f   # View logs"
 echo ""
-echo "The service will start automatically on next boot."
+echo "The service is now running and will start automatically on boot."

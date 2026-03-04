@@ -97,12 +97,14 @@ async def index(request: Request):
 @router.get("/api/status", response_model=StatusResponse)
 async def get_status():
     """Get system status."""
-    # TODO: Implement actual status retrieval
+    from power_manager import get_power_manager
+
+    battery = get_power_manager().get_battery_status()
     return StatusResponse(
-        battery={"voltage": 3.85, "percentage": 72, "charging": False},
+        battery=battery,
         wifi_connected=False,  # In AP mode
         last_update=None,
-        next_update=None,
+        next_update=get_config().update_time,
         current_photo=None,
         version="0.1.0",
     )
@@ -300,12 +302,10 @@ async def stop_ap_mode() -> ApiResponse:
 
 @router.post("/api/system/shutdown")
 async def system_shutdown() -> ApiResponse:
-    """Shutdown system (display default image and power off).
+    """Set next startup alarm and power off the system."""
+    from power_manager import get_power_manager
 
-    This endpoint puts an event in the queue for the main state machine.
-    """
-    # TODO: Implement event queue integration
-    # event_queue.put(Event.AP_USER_SHUTDOWN)
+    get_power_manager().schedule_and_shutdown()
     return ApiResponse(success=True, message="Shutdown initiated")
 
 

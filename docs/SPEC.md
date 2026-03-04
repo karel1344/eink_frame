@@ -109,15 +109,31 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
   - `.thumbnails/` 하위 디렉토리에 저장
   - 웹 UI 조회 시 원본 로드 없이 썸네일만 서빙
 
-### 4.5 웹 UI 모드 (AP 모드)
-웹 UI 진입 조건:
-- [x] **물리 버튼** 누름 (WiFi 연결 중 언제든)
-- [x] **WiFi 연결 실패** 시 자동 전환
-- [x] **에러 발생** 시 자동 전환
+### 4.5 웹 UI 모드
 
-웹 UI 모드 동작:
-- [x] AP 모드 활성화: `EinkFrame-XXXX` (XXXX는 기기 고유값)
-- [x] 스마트폰으로 AP 접속 시 웹 UI 자동 표시 (Captive Portal)
+웹 UI 진입 조건 및 모드:
+
+#### 4.5.1 WEB_UI_MODE (WiFi 연결 유지 모드)
+- [x] **물리 버튼 누름** 후 **WiFi 연결 성공** 시 진입
+- Pi는 기존 WiFi에 연결된 채로 웹서버 실행
+- 인터넷 연결 유지 → **Google OAuth 로그인, OTA 업데이트 등 온라인 기능 사용 가능**
+- E-Ink에 Pi의 WiFi IP 표시 (스마트폰이 같은 WiFi에서 접근)
+- Captive Portal 없음 (스마트폰이 같은 WiFi에 연결되어 있어야 함)
+
+**WEB_UI_MODE 종료 방식:**
+| 종료 방식 | 화면 처리 | 다음 단계 |
+|-----------|-----------|-----------|
+| 버튼 재누름 | 직전 사진 복원 | 종료 |
+| 타임아웃 | 직전 사진 복원 | 종료 |
+| "종료" 버튼 | 디폴트 이미지 | 종료 |
+| "사진 업데이트" 버튼 | 새 사진 표시 | 사진 업데이트 후 종료 |
+
+#### 4.5.2 AP_MODE (AP 핫스팟 모드)
+- [x] **물리 버튼 누름** 후 **WiFi 연결 실패** 시 진입
+- [x] **WiFi 연결 실패** 시 자동 전환 (버튼 없이도)
+- [x] **에러 발생** 시 자동 전환
+- AP 모드 활성화: `EinkFrame-XXXX` (XXXX는 기기 고유값)
+- 스마트폰으로 AP 접속 시 웹 UI 자동 표시 (Captive Portal)
 - [x] **통합 웹 UI**: WiFi 설정, 사진 관리, 시스템 설정 모두 가능
 - [x] **오프라인 모드 설정**: WiFi 미사용, 로컬 사진만 사용 가능
 
@@ -128,7 +144,7 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
   - iOS: `captive.apple.com`, `www.apple.com/library/test/success.html`
 - **HTTP 리다이렉트**: 모든 HTTP 요청을 웹 UI로 리다이렉트
 
-웹 UI 종료 방식:
+**AP_MODE 종료 방식:**
 | 종료 방식 | 화면 처리 | 설명 |
 |-----------|-----------|------|
 | 버튼 재누름 | 직전 사진 복원 | 실수로 진입 시 |
@@ -138,19 +154,29 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
 
 **동작 흐름**:
 ```
-[정상 부팅 - 온라인 모드]
+[정상 부팅 - 온라인 모드, 버튼 안 누름]
 부팅 → WiFi 연결 시도 → 성공 → 사진 업데이트 → 종료
-              ↓ (버튼 누름)
-           AP 모드
 
-[정상 부팅 - 오프라인 모드]
-부팅 → (WiFi 건너뜀) → 로컬 사진 업데이트 → 종료
-         ↓ (버튼 누름)
-      AP 모드
-
-[WiFi 실패 / 버튼 누름 / 에러 발생]
+[버튼 누름 - WiFi 연결 성공]
+부팅 → WiFi 연결 시도 (버튼 감지) → 성공
          ┌──────────────────────────────────────┐
-         │            AP 모드 + 웹 UI            │
+         │       WEB_UI_MODE + 웹 UI             │
+         │   E-ink에 Pi WiFi IP 주소 표시        │
+         └──────────────────┬───────────────────┘
+                            │
+    ┌───────────┬───────────┼───────────┐
+    ↓           ↓           ↓           ↓
+ 버튼 재누름  타임아웃    "종료"    "사진 업데이트"
+    │           │         버튼         버튼
+    ↓           ↓           ↓           ↓
+ 직전 사진   직전 사진   디폴트    사진 업데이트
+   복원       복원      이미지     후 종료
+    ↓           ↓           ↓
+   종료        종료        종료
+
+[버튼 누름 - WiFi 연결 실패 / WiFi 실패 / 에러 발생]
+         ┌──────────────────────────────────────┐
+         │            AP_MODE + 웹 UI            │
          │      E-ink에 AP 접속 안내 표시        │
          └──────────────────┬───────────────────┘
                             │
@@ -175,6 +201,11 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
                             │    │         │
                             ↓    ↓         ↓
                           종료 ←─┴─── AP 모드
+
+[정상 부팅 - 오프라인 모드]
+부팅 → (WiFi 건너뜀) → 로컬 사진 업데이트 → 종료
+         ↓ (버튼 누름)
+      AP 모드 (오프라인이므로 WiFi 연결 시도 없음)
 ```
 
 ### 4.6 웹 설정 UI
@@ -294,7 +325,8 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
 |------|------|
 | `INIT` | 시스템 초기화, 하드웨어 점검 |
 | `WIFI_CONNECT` | WiFi 연결 시도 (버튼 눌림 상태 감시) |
-| `AP_MODE` | AP 모드 + 웹 UI 실행 중 |
+| `WEB_UI_MODE` | WiFi 연결된 상태에서 웹 UI 실행 (버튼 누름 + WiFi 성공 시) |
+| `AP_MODE` | AP 핫스팟 모드 + 웹 UI 실행 중 (WiFi 실패 / 에러 시) |
 | `PHOTO_UPDATE` | 사진 선택 → 처리 → 디스플레이 |
 | `SCHEDULE` | 다음 부팅 스케줄 설정 |
 | `SHUTDOWN` | 시스템 종료 |
@@ -305,14 +337,19 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
 | 이벤트 | 설명 |
 |--------|------|
 | `INIT_COMPLETE` | 초기화 완료 |
-| `BUTTON_PRESSED` | 물리 버튼 눌림 상태 감지 |
-| `WIFI_SUCCESS` | WiFi 연결 성공 |
-| `WIFI_FAIL` | WiFi 연결 실패/타임아웃 |
+| `BUTTON_PRESSED` | 물리 버튼 눌림 감지 → `web_ui_requested` 플래그 설정, WiFi 시도는 계속 |
+| `WIFI_SUCCESS` | WiFi 연결 성공 (web_ui_requested=False → PHOTO_UPDATE) |
+| `WIFI_SUCCESS_WEB_UI` | WiFi 연결 성공 + 버튼 눌렸음 (web_ui_requested=True → WEB_UI_MODE) |
+| `WIFI_FAIL` | WiFi 연결 실패/타임아웃 → AP_MODE |
 | `OFFLINE_MODE` | 오프라인 모드 (WiFi 비활성화) |
-| `AP_BUTTON_EXIT` | AP 모드 중 버튼 재누름 |
-| `AP_TIMEOUT` | AP 모드 타임아웃 |
-| `AP_USER_SHUTDOWN` | 웹 UI에서 "종료" 선택 |
-| `AP_USER_APPLY` | 웹 UI에서 "적용 후 연결" 선택 |
+| `WEB_UI_BUTTON_EXIT` | WEB_UI_MODE 중 버튼 재누름 |
+| `WEB_UI_TIMEOUT` | WEB_UI_MODE 타임아웃 |
+| `WEB_UI_SHUTDOWN` | WEB_UI_MODE에서 "종료" 선택 |
+| `WEB_UI_UPDATE` | WEB_UI_MODE에서 "사진 업데이트" 선택 |
+| `AP_BUTTON_EXIT` | AP_MODE 중 버튼 재누름 |
+| `AP_TIMEOUT` | AP_MODE 타임아웃 |
+| `AP_USER_SHUTDOWN` | AP_MODE 웹 UI에서 "종료" 선택 |
+| `AP_USER_APPLY` | AP_MODE 웹 UI에서 "적용 후 연결" 선택 |
 | `UPDATE_COMPLETE` | 사진 업데이트 완료 |
 | `SCHEDULE_SET` | 스케줄 설정 완료 |
 | `ERROR_OCCURRED` | 에러 발생 |
@@ -326,56 +363,63 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
               └────┬─────┘
                    │ INIT_COMPLETE
                    ▼
-            ┌──────────────┐◄───────────────────────────┐
-            │ WIFI_CONNECT │ ◄─── 버튼 눌림 상태 감시    │
-            └──────┬───────┘                            │
-                   │                                    │
-     ┌─────────────┼─────────────┬──────────────┐       │
-     │             │             │              │       │
-     │ BUTTON      │ WIFI        │ WIFI         │ OFFLINE
-     │ PRESSED     │ SUCCESS     │ FAIL         │ MODE
-     │             │             │              │       │
-     │             ▼             │              │       │
-     │      ┌──────────────┐     │              │       │
-     │      │ PHOTO_UPDATE │◄────┼──────────────┘       │
-     │      └──────┬───────┘     │                      │
-     │             │             │                      │
-     │             │ UPDATE      │                      │
-     │             │ COMPLETE    │                      │
-     │             ▼             │                      │
-     │      ┌──────────┐         │                      │
-     │      │ SCHEDULE │         │                      │
-     │      └────┬─────┘         │                      │
-     │           │               │                      │
-     │           │ SCHEDULE_SET  │                      │
-     │           ▼               │                      │
-     │      ┌──────────┐         │                      │
-     │      │ SHUTDOWN │         │                      │
-     │      └──────────┘         │                      │
-     │                           │                      │
-     │      ┌──────────┐         │                      │
-     │      │  ERROR   │─────────┼───┐                  │
-     │      └──────────┘         │   │ ERROR_HANDLED    │
-     │        E-ink에 에러 표시   │   │                  │
-     │                           │   │                  │
-     ▼                           ▼   ▼                  │
-   ┌─────────────────────────────────────┐              │
-   │              AP_MODE                │              │
-   └─────────────────┬───────────────────┘              │
-                     │                                  │
-   ┌─────────────────┼─────────────────┬────────────┐   │
-   │                 │                 │            │   │
-   │ AP_BUTTON_EXIT  │ AP_TIMEOUT      │ AP_USER    │ AP_USER
-   │                 │                 │ SHUTDOWN   │ APPLY
-   │                 │                 │            │   │
-   │ 직전 사진 복원   │ 직전 사진 복원   │ 디폴트     │   │
-   │                 │                 │ 이미지     │   │
-   ▼                 ▼                 ▼            │   │
-┌────────────────────────────────────────┐          │   │
-│               SHUTDOWN                 │◄─────────┘   │
-└────────────────────────────────────────┘              │
-                                                        │
-              AP 중지 → WiFi 연결 시도 ─────────────────┘
+            ┌──────────────┐◄───────────────────────────────┐
+            │ WIFI_CONNECT │ ◄─── 버튼 눌림 상태 감시         │
+            └──────┬───────┘  (BUTTON_PRESSED: 플래그만 설정) │
+                   │                                         │
+   ┌───────────────┼───────────────┬──────────────┐          │
+   │               │               │              │          │
+   │ WIFI_SUCCESS  │ WIFI_SUCCESS  │ WIFI_FAIL    │ OFFLINE  │
+   │ (버튼 안 누름) │ _WEB_UI       │              │ MODE     │
+   │               │ (버튼 눌렸음) │              │          │
+   │               ▼               ▼              │          │
+   │   ┌──────────────────┐  ┌──────────┐         │          │
+   │   │  WEB_UI_MODE     │  │ AP_MODE  │◄────────┘          │
+   │   │  (WiFi 연결 유지) │  │ (핫스팟) │                    │
+   │   └────────┬─────────┘  └────┬─────┘                    │
+   │            │                 │                           │
+   │  ┌─────────┼──────────┐  ┌───┴──────────────┬────────┐  │
+   │  │         │          │  │                  │        │  │
+   │  │WEB_UI   │WEB_UI    │  │AP_BUTTON_EXIT    │AP_USER │  │
+   │  │BUTTON   │SHUTDOWN  │  │AP_TIMEOUT        │APPLY   │  │
+   │  │EXIT /   │          │  │AP_USER_SHUTDOWN  │        │  │
+   │  │TIMEOUT  │          │  │                  │        │  │
+   │  │         │          │  │직전 사진 복원 /   │AP 중지  │  │
+   │  │직전사진  │디폴트    │  │디폴트 이미지      │WiFi 연결│  │
+   │  │복원     │이미지    │  │                  │시도     │  │
+   │  ▼         ▼          │  ▼                  ▼        │  │
+   │  ┌──────────────────┐ │  ┌──────────────────────┐   │  │
+   │  │     SHUTDOWN     │ │  │       SHUTDOWN        │   │  │
+   │  └──────────────────┘ │  └──────────────────────┘   │  │
+   │                       │                              │  │
+   │  WEB_UI_UPDATE        │                   ───────────┘  │
+   │  ↓                    │                   │             │
+   │                       │                   ▼             │
+   │                       │         WiFi 연결 시도           │
+   │                       │              │                  │
+   │                       │       ┌──────┴──────┐           │
+   │                       │       ↓              ↓          │
+   │                       │    성공            실패          │
+   │                       │       │              │          │
+   ↓                       ↓       ↓              ↓          │
+ ┌──────────────────────────────────────┐      AP_MODE       │
+ │             PHOTO_UPDATE             │                    │
+ └──────────────────┬───────────────────┘                    │
+                    │ UPDATE_COMPLETE                         │
+                    ▼                                         │
+             ┌──────────┐                                     │
+             │ SCHEDULE │                                     │
+             └────┬─────┘                                     │
+                  │ SCHEDULE_SET                              │
+                  ▼                                           │
+             ┌──────────┐                                     │
+             │ SHUTDOWN │                                     │
+             └──────────┘                                     │
+                                                             │
+          ┌──────────┐                                        │
+          │  ERROR   │──────────────────────────────────────►│
+          └──────────┘  ERROR_HANDLED → AP_MODE              │
+            E-ink에 에러 표시                                  │
 ```
 
 #### 5.4.4 전이 테이블
@@ -384,10 +428,15 @@ Raspberry Pi Zero 2 W와 컬러 e-ink 디스플레이를 사용하여 하루에 
 |-----------|--------|-----------|------|
 | `INIT` | `INIT_COMPLETE` | `WIFI_CONNECT` | 버튼 상태 감시 시작 |
 | `INIT` | `ERROR_OCCURRED` | `ERROR` | 에러 로깅 |
-| `WIFI_CONNECT` | `BUTTON_PRESSED` | `AP_MODE` | WiFi 연결 중단 |
-| `WIFI_CONNECT` | `WIFI_SUCCESS` | `PHOTO_UPDATE` | 버튼 상태 감시 종료 |
+| `WIFI_CONNECT` | `BUTTON_PRESSED` | `WIFI_CONNECT` (유지) | `web_ui_requested=True` 플래그 설정, WiFi 시도 계속 |
+| `WIFI_CONNECT` | `WIFI_SUCCESS` (web_ui_requested=False) | `PHOTO_UPDATE` | 버튼 상태 감시 종료 |
+| `WIFI_CONNECT` | `WIFI_SUCCESS_WEB_UI` (web_ui_requested=True) | `WEB_UI_MODE` | 웹서버 시작, E-Ink에 WiFi IP 표시 |
 | `WIFI_CONNECT` | `WIFI_FAIL` | `AP_MODE` | AP 시작, 안내 화면 표시 |
 | `WIFI_CONNECT` | `OFFLINE_MODE` | `PHOTO_UPDATE` | 버튼 상태 감시 종료 |
+| `WEB_UI_MODE` | `WEB_UI_BUTTON_EXIT` | `SHUTDOWN` | 직전 사진 복원 표시 |
+| `WEB_UI_MODE` | `WEB_UI_TIMEOUT` | `SHUTDOWN` | 직전 사진 복원 표시 |
+| `WEB_UI_MODE` | `WEB_UI_SHUTDOWN` | `SHUTDOWN` | 디폴트 이미지 표시 |
+| `WEB_UI_MODE` | `WEB_UI_UPDATE` | `PHOTO_UPDATE` | 웹서버 종료 후 사진 업데이트 시작 |
 | `AP_MODE` | `AP_BUTTON_EXIT` | `SHUTDOWN` | 직전 사진 복원 표시 |
 | `AP_MODE` | `AP_TIMEOUT` | `SHUTDOWN` | 직전 사진 복원 표시 |
 | `AP_MODE` | `AP_USER_SHUTDOWN` | `SHUTDOWN` | 디폴트 이미지 표시 |
@@ -475,18 +524,23 @@ INIT
 
 상태머신과 FastAPI 웹서버의 충돌 방지를 위한 스레드 분리 설계:
 
+웹서버는 `WEB_UI_MODE`와 `AP_MODE` 두 상태 모두에서 실행되며, 네트워크 설정만 다름:
+- `WEB_UI_MODE`: WiFi 연결 유지, 포트 8080, Captive Portal 없음
+- `AP_MODE`: AP 핫스팟 활성화, 포트 80, Captive Portal DNS 실행
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Main Thread                               │
 │                      (상태머신 실행)                              │
 │                                                                  │
-│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐      │
-│  │  INIT   │───►│WIFI_CONN│───►│AP_MODE  │───►│SHUTDOWN │      │
-│  └─────────┘    └─────────┘    └────┬────┘    └─────────┘      │
-│                                     │                           │
-│                              웹서버 시작                         │
-│                                     │                           │
-└─────────────────────────────────────┼───────────────────────────┘
+│  ┌─────────┐    ┌─────────┐    ┌──────────────┐  ┌──────────┐  │
+│  │  INIT   │───►│WIFI_CONN│───►│WEB_UI_MODE   │  │AP_MODE   │  │
+│  └─────────┘    └─────────┘    │또는 AP_MODE  │  │          │  │
+│                                └──────┬───────┘  └──────────┘  │
+│                                       │                         │
+│                                웹서버 시작                       │
+│                                       │                         │
+└───────────────────────────────────────┼─────────────────────────┘
                                       │
                     ┌─────────────────┼─────────────────┐
                     │                 ▼                 │
@@ -904,10 +958,12 @@ logging:
 | 웹 UI 접속 방식 | ✅ | AP 모드 (버튼 또는 WiFi 실패 시) |
 | 시스템 아키텍처 | ✅ | 상태머신 기반 |
 | 오프라인 모드 | ✅ | WiFi 비활성화 옵션, 로컬 사진만 사용 |
-| AP 모드 종료 방식 | ✅ | 버튼/타임아웃(직전사진), 종료(디폴트), 적용(새사진) |
+| 버튼 누름 시 동작 | ✅ | WiFi 연결 계속 시도 → 성공 시 WEB_UI_MODE, 실패 시 AP_MODE |
+| AP_MODE 종료 방식 | ✅ | 버튼/타임아웃(직전사진), 종료(디폴트), 적용(새사진) |
+| WEB_UI_MODE 종료 방식 | ✅ | 버튼/타임아웃(직전사진→종료), 종료(디폴트), 사진업데이트(PHOTO_UPDATE) |
 | AP→WiFi 전환 | ✅ | 재부팅 없이 모드 전환 |
 | 스레드 아키텍처 | ✅ | 상태머신(메인) + FastAPI(별도 스레드) + 이벤트 큐 |
 
 ---
 
-*마지막 업데이트: 2026-03-02*
+*마지막 업데이트: 2026-03-04*

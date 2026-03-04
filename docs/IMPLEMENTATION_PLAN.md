@@ -10,7 +10,7 @@
 | 사진 소스 | 75% |
 | 이미지 처리 | 100% |
 | 디스플레이 드라이버 | 100% |
-| 전원 관리 | 0% |
+| 전원 관리 | 100% |
 | 상태머신 | 0% |
 | OTA 업데이트 | 0% |
 | 에셋/스크립트 | 50% |
@@ -214,18 +214,20 @@
 
 ---
 
-## Phase 7: 전원 관리 - 0% 완료
+## Phase 7: 전원 관리 - 100% 완료
 
-### 미완료 ❌
+### 완료 ✅
 
-- [ ] **power_manager.py** - Witty Pi 연동
-  - I2C 통신 (주소 0x69, 배터리 레지스터)
-  - 배터리 전압 읽기
-    - 저전압 임계값: 3.3V (경고)
-    - 긴급 종료 임계값: 3.0V
-  - 다음 부팅 스케줄 설정 (schedule.update_time 사용)
-  - Graceful Shutdown 시퀀스
-    - Witty Pi 스케줄 설정 → systemctl poweroff
+- [x] **power_manager.py** - Witty Pi 연동
+  - I2C 통신 (주소 0x08, Firmware ID 0x37 = L3V7)
+  - 배터리 전압/전류/출력전압 읽기 (레지스터 1~6)
+  - 배터리 % 추정 (선형 보간, 3.0V~4.2V)
+  - 저전압 임계값 설정 (레지스터 19)
+  - 부팅 알람 설정 (Alarm 1, 레지스터 27~30, BCD 인코딩)
+    - `schedule.update_time` + `schedule.timezone` → UTC 변환 후 설정
+    - `_ALARM_DAY_EVERY_DAY = 0x80` (매일 반복)
+  - Graceful Shutdown: 알람 설정 → DB에 배터리 전압 저장 → systemctl poweroff
+  - Mac/dry-run 자동 폴백 (smbus2 없거나 Linux 아닌 환경)
 
 ---
 
@@ -234,20 +236,31 @@
 ### 미완료 ❌
 
 - [ ] **state_machine.py** - 상태머신 구현
-  - States: INIT, WIFI_CONNECT, AP_MODE, PHOTO_UPDATE, SCHEDULE, SHUTDOWN, ERROR
-  - Events: INIT_COMPLETE, BUTTON_PRESSED, WIFI_SUCCESS, WIFI_FAIL, etc.
+  - States: INIT, WIFI_CONNECT, **WEB_UI_MODE**, AP_MODE, PHOTO_UPDATE, SCHEDULE, SHUTDOWN, ERROR
+  - Events: INIT_COMPLETE, BUTTON_PRESSED, WIFI_SUCCESS, WIFI_SUCCESS_WEB_UI, WIFI_FAIL, etc.
   - 이벤트 큐 (thread-safe queue.Queue)
   - 상태 전이 로직
   - 스레드 아키텍처: 메인 스레드(상태머신) + 웹 스레드(FastAPI)
+  - **BUTTON_PRESSED 처리**: WiFi 연결 중단 없이 `web_ui_requested=True` 플래그 설정
+    - WiFi 성공 + 플래그 → WEB_UI_MODE (WiFi 연결 유지, E-Ink에 IP 표시)
+    - WiFi 실패 + 플래그 → AP_MODE (기존과 동일)
+  - **WEB_UI_MODE** (새 상태):
+    - WiFi 연결된 채로 웹서버 실행 (포트 8080)
+    - E-Ink에 Pi WiFi IP 주소 표시 (스마트폰 접근용)
+    - Captive Portal 없음, 인터넷 연결됨 (Google OAuth 등 가능)
+    - 버튼 재누름/타임아웃 → 직전 사진 복원 → SHUTDOWN
+    - "종료" 버튼 → 디폴트 이미지 → SHUTDOWN
+    - "사진 업데이트" 버튼 → 웹서버 종료 → PHOTO_UPDATE
   - INIT 내부 단계: 하드웨어 초기화 → 설정 로드 → 배터리 확인 → DB 연결 → 오프라인 모드 확인
   - AP 모드 버튼 재누름 감지 (AP_BUTTON_EXIT 이벤트)
   - AP 모드 타임아웃 워치독 (web_ui.timeout 설정값 사용)
-  - AP 모드 종료 시 이전 사진 복원/디폴트 이미지 표시 로직
+  - WEB_UI_MODE / AP_MODE 종료 시 이전 사진 복원/디폴트 이미지 표시 로직
   - Watchdog 타이머 (무한루프 방지, systemd watchdog 또는 별도 타이머)
-  - 메모리 관리: AP 모드 종료 후 이미지 처리 시작 (동시 실행 방지)
+  - 메모리 관리: 웹 UI 모드 종료 후 이미지 처리 시작 (동시 실행 방지)
 
 - [ ] **status_display.py** - E-ink 상태 표시
   - AP 모드 안내 화면 (SSID, IP, 접속 방법 텍스트)
+  - **WEB_UI_MODE 안내 화면** (Pi WiFi IP 주소, 포트 8080, 같은 WiFi 연결 안내)
   - 에러 메시지 표시
     - 에러 타입별: 네트워크 오류, Google API 오류, 저장소 부족 등
   - 배터리 부족 표시
@@ -359,4 +372,4 @@ Pi 필요:
 
 ---
 
-*마지막 업데이트: 2026-03-04 (사진 표시 루프 완료: frame_runner.py, photo_selector.py)*
+*마지막 업데이트: 2026-03-04 (Phase 7 완료: power_manager.py, 타임존 UTC 변환 수정)*

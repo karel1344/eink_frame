@@ -84,10 +84,13 @@ def run_once(*, dry_run: bool = False) -> bool:
 
     # 3. Process image
     try:
+        from power_manager import get_power_manager
+        voltage = get_power_manager().read_input_voltage()
+
         processor = ImageProcessor.from_config(
             assets_dir=_PROJECT_ROOT / "assets"
         )
-        image = processor.process(photo.file_path, battery_voltage=None)
+        image = processor.process(photo.file_path, battery_voltage=voltage)
     except Exception:
         logger.exception("Image processing failed for %s", photo.file_path)
         return False
