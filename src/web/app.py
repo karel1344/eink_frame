@@ -37,6 +37,18 @@ async def log_all_requests(request: Request, call_next):
     host = request.headers.get("host", "unknown")
     logger.info(f"HTTP Request: {request.method} {request.url.path} (Host: {host}, Client: {request.client.host if request.client else 'unknown'})")
     response = await call_next(request)
+
+    # WEB_UI_MODE: 페이지/API 접속 시 idle 타임아웃 리셋
+    path = request.url.path
+    if path == "/" or path.startswith("/api/"):
+        try:
+            from state_machine import get_state_machine
+            sm = get_state_machine()
+            if sm:
+                sm.notify_web_activity()
+        except Exception:
+            pass
+
     return response
 
 

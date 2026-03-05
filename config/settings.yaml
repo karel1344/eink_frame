@@ -48,6 +48,7 @@ web_ui:
   ap_safe_timeout: 60
   ap_ssid_prefix: EinkFrame
   captive_portal_enabled: true
+  no_connection_timeout: 300
   port: 80
   recovery_enabled: true
   timeout: 600

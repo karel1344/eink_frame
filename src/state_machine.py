@@ -66,6 +66,7 @@ class StateMachine:
         self._event_queue: queue.Queue[Event] = queue.Queue()
         self._running: bool = False
         self._web_ui_requested: bool = False
+        self._web_activity_seen: bool = False
         self._uvicorn_server = None
         self._web_server_thread: Optional[threading.Thread] = None
         self._timeout_timer: Optional[threading.Timer] = None
@@ -112,6 +113,24 @@ class StateMachine:
         """Request the event loop to stop."""
         self._running = False
         self.post_event(Event.SHUTDOWN_REQUEST)
+
+    def notify_web_activity(self) -> None:
+        """웹 요청이 들어올 때마다 호출. WEB_UI_MODE에서 idle 타임아웃을 리셋.
+
+        - 첫 번째 접속: 300s no-connection 타이머 → 600s idle 타이머로 전환
+        - 이후 매 요청: 600s idle 타이머 리셋
+        """
+        if self._state != State.WEB_UI_MODE:
+            return
+        try:
+            from config import get_config
+            idle_timeout = get_config().get("web_ui.timeout", 600)
+        except Exception:
+            idle_timeout = 600
+        if not self._web_activity_seen:
+            self._web_activity_seen = True
+            logger.info("Web UI activity detected — switching to %ds idle timeout", idle_timeout)
+        self._start_timeout(idle_timeout, Event.WEB_UI_TIMEOUT)
 
     # ------------------------------------------------------------------
     # State transition
@@ -277,24 +296,31 @@ class StateMachine:
         self._set_state(State.WEB_UI_MODE)
         self._web_ui_requested = False
 
+        from config import get_config
+        config = get_config()
+        port = config.get("web_ui.port", 80)
+
         # Log IP for user
         try:
             from wifi.manager import get_wifi_manager
             status = get_wifi_manager().get_status()
             ip = status.ip_address or "unknown"
-            logger.info("WEB_UI_MODE: access at http://%s:8080", ip)
-            # TODO: status_display.show_web_ui_info(ip, 8080)
+            logger.info("WEB_UI_MODE: access at http://%s:%d", ip, port)
+            # TODO: status_display.show_web_ui_info(ip, port)
         except Exception:
             pass
 
         # Start web server
-        self._start_web_server(port=8080)
+        self._start_web_server(port=port)
 
-        # Timeout timer
-        from config import get_config
-        timeout = get_config().get("web_ui.timeout", 600)
-        if timeout > 0:
-            self._start_timeout(timeout, Event.WEB_UI_TIMEOUT)
+        # Dual timeout:
+        #   - 접속 없음: 300s 후 WEB_UI_TIMEOUT
+        #   - 접속 있음: API 호출 시마다 600s 리셋 (notify_web_activity 참고)
+        self._web_activity_seen = False
+        no_conn_timeout = config.get("web_ui.no_connection_timeout", 300)
+        if no_conn_timeout > 0:
+            self._start_timeout(no_conn_timeout, Event.WEB_UI_TIMEOUT)
+            logger.info("WEB_UI no-connection timeout: %ds", no_conn_timeout)
 
         # 부팅 홀드로 진입했으므로 손을 뗀 후에 "재누름 = 사용자 종료" 콜백 등록
         try:
