@@ -102,20 +102,18 @@ class ButtonHandler:
         try:
             from gpiozero import Button
 
-            self._button = Button(
-                self.gpio_pin,
-                pull_up=self.pull_up,
-                hold_time=self.hold_time,
-            )
+            if self._button is None:
+                self._button = Button(
+                    self.gpio_pin,
+                    pull_up=self.pull_up,
+                    hold_time=self.hold_time,
+                )
+                logger.info(f"Button handler setup on GPIO {self.gpio_pin}")
 
-            if on_press:
-                self._button.when_pressed = on_press
-
-            if on_hold:
-                self._button.when_held = on_hold
+            self._button.when_pressed = on_press if on_press else None
+            self._button.when_held = on_hold if on_hold else None
 
             self._available = True
-            logger.info(f"Button handler setup on GPIO {self.gpio_pin}")
             return True
 
         except ImportError:
