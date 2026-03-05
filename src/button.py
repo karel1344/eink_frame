@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Callable, Optional
 
 from wifi.ap_mode import ExecutionMode
@@ -107,11 +108,15 @@ class ButtonHandler:
                     self.gpio_pin,
                     pull_up=self.pull_up,
                     hold_time=self.hold_time,
+                    bounce_time=0.1,
                 )
                 logger.info(f"Button handler setup on GPIO {self.gpio_pin}")
 
-            self._button.when_pressed = on_press if on_press else None
-            self._button.when_held = on_hold if on_hold else None
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self._button.when_released = None  # cancel any pending arm
+                self._button.when_pressed = on_press if on_press else None
+                self._button.when_held = on_hold if on_hold else None
 
             self._available = True
             return True
@@ -125,6 +130,41 @@ class ButtonHandler:
             logger.error(f"Failed to setup button: {e}")
             self._available = False
             return False
+
+    def setup_after_release(
+        self,
+        on_press: Optional[Callable[[], None]] = None,
+        on_hold: Optional[Callable[[], None]] = None,
+    ) -> bool:
+        """버튼이 현재 눌려 있으면 완전히 떼진 후에 콜백을 등록한다.
+
+        부팅 시 홀드로 모드에 진입한 경우, 손을 떼는 동작이 곧바로
+        종료 이벤트를 발생시키지 않도록 하기 위해 사용한다.
+        """
+        if self._button is None:
+            return self.setup(on_press=on_press, on_hold=on_hold)
+
+        def _on_release():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self._button.when_released = None
+            self.setup(on_press=on_press, on_hold=on_hold)
+            logger.debug("Button exit callback armed after release")
+
+        # when_released를 먼저 등록한 뒤 is_pressed 확인 (race condition 방지)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self._button.when_released = _on_release
+
+        if not self._button.is_pressed:
+            # 이미 떼진 상태 → 즉시 when_pressed 등록
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self._button.when_released = None
+            return self.setup(on_press=on_press, on_hold=on_hold)
+
+        logger.debug("Button held — arming deferred until release")
+        return True
 
     def cleanup(self) -> None:
         """Cleanup button handler and release GPIO."""
