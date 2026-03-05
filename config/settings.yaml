@@ -1,3 +1,4 @@
+dry_run: false
 battery:
   critical_voltage: 3.0
   low_voltage_threshold: 3.3

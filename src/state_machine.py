@@ -61,7 +61,7 @@ class Event(Enum):
 class StateMachine:
     """Main state machine for the E-Ink photo frame lifecycle."""
 
-    def __init__(self, dry_run: bool = False):
+    def __init__(self):
         self._state: State = State.INIT
         self._event_queue: queue.Queue[Event] = queue.Queue()
         self._running: bool = False
@@ -69,7 +69,11 @@ class StateMachine:
         self._uvicorn_server = None
         self._web_server_thread: Optional[threading.Thread] = None
         self._timeout_timer: Optional[threading.Timer] = None
-        self._dry_run: bool = dry_run or (platform.system() != "Linux")
+        try:
+            from config import get_config
+            self._dry_run: bool = bool(get_config().get("dry_run", platform.system() != "Linux"))
+        except Exception:
+            self._dry_run = platform.system() != "Linux"
 
     # ------------------------------------------------------------------
     # Public API
@@ -557,10 +561,10 @@ def get_state_machine() -> Optional[StateMachine]:
     return _state_machine
 
 
-def create_state_machine(dry_run: bool = False) -> StateMachine:
+def create_state_machine() -> StateMachine:
     """Create and set the global state machine instance."""
     global _state_machine
-    _state_machine = StateMachine(dry_run=dry_run)
+    _state_machine = StateMachine()
     return _state_machine
 
 

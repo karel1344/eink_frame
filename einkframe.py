@@ -48,15 +48,15 @@ def run_frame(dry_run: bool = False):
     sys.exit(0 if success else 1)
 
 
-def run_production(dry_run: bool = False):
+def run_production():
     """Pi 프로덕션 모드: 상태머신이 전체 라이프사이클 관리."""
     from src.state_machine import create_state_machine
 
     logger.info("=" * 50)
-    logger.info("E-Ink Photo Frame - Production Mode%s", " (dry-run)" if dry_run else "")
+    logger.info("E-Ink Photo Frame - Production Mode")
     logger.info("=" * 50)
 
-    sm = create_state_machine(dry_run=dry_run)
+    sm = create_state_machine()
     try:
         sm.run()  # Blocks until SHUTDOWN or ERROR
     except KeyboardInterrupt:
@@ -71,4 +71,4 @@ if __name__ == "__main__":
     elif "--dev" in sys.argv:
         run_dev()
     else:
-        run_production(dry_run="--dry-run" in sys.argv)
+        run_production()
