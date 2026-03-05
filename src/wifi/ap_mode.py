@@ -188,7 +188,7 @@ class APModeManager:
 
     def _init_from_config(self) -> None:
         """Initialize settings from config if not provided."""
-        from ..config import get_config
+        from config import get_config
 
         config = get_config()
 
@@ -461,7 +461,7 @@ class APModeManager:
         Returns:
             True if configured (or running in non-execution mode).
         """
-        from ..config import get_config
+        from config import get_config
 
         config = get_config()
         if not config.captive_portal_enabled:

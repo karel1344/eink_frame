@@ -11,7 +11,7 @@
 | 이미지 처리 | 100% |
 | 디스플레이 드라이버 | 100% |
 | 전원 관리 | 100% |
-| 상태머신 | 0% |
+| 상태머신 | 95% |
 | OTA 업데이트 | 0% |
 | 에셋/스크립트 | 50% |
 | 저장소/로깅 | 0% |
@@ -231,32 +231,38 @@
 
 ---
 
-## Phase 8: 상태머신 - 0% 완료
+## Phase 8: 상태머신 - 95% 완료
+
+### 완료 ✅
+
+- [x] **state_machine.py** - 상태머신 구현
+  - States: INIT, WIFI_CONNECT, WEB_UI_MODE, AP_MODE, PHOTO_UPDATE, SCHEDULE, SHUTDOWN, ERROR
+  - Events: INIT_COMPLETE, WIFI_SUCCESS, WIFI_SUCCESS_WEB_UI, WIFI_FAIL, AP_TIMEOUT, WEB_UI_TIMEOUT, PHOTO_DONE, PHOTO_FAIL, SHUTDOWN_REQUEST, PHOTO_UPDATE_REQUEST, ERROR_OCCURRED
+  - 이벤트 큐 (thread-safe queue.Queue)
+  - 상태 전이 로직 (핸들러: `_on_<state>`)
+  - 스레드 아키텍처: 메인 스레드(상태머신) + 웹 스레드(FastAPI)
+  - `_web_ui_requested` 플래그: 부팅 시 버튼 눌림 감지 → WiFi 성공 시 WEB_UI_MODE 분기
+  - WEB_UI_MODE: WiFi 연결 유지, 포트 8080, 타임아웃 처리
+  - AP_MODE: ap_manager 연동, 포트 80, AP_TIMEOUT 처리
+  - SCHEDULE → SHUTDOWN: power_manager.schedule_and_shutdown() 호출
+  - platform.system() != "Linux" 자동 dry_run
+  - mode_info 프로퍼티 (웹 API 상태 노출용)
 
 ### 미완료 ❌
 
-- [ ] **state_machine.py** - 상태머신 구현
-  - States: INIT, WIFI_CONNECT, **WEB_UI_MODE**, AP_MODE, PHOTO_UPDATE, SCHEDULE, SHUTDOWN, ERROR
-  - Events: INIT_COMPLETE, BUTTON_PRESSED, WIFI_SUCCESS, WIFI_SUCCESS_WEB_UI, WIFI_FAIL, etc.
-  - 이벤트 큐 (thread-safe queue.Queue)
-  - 상태 전이 로직
-  - 스레드 아키텍처: 메인 스레드(상태머신) + 웹 스레드(FastAPI)
-  - **BUTTON_PRESSED 처리**: WiFi 연결 중단 없이 `web_ui_requested=True` 플래그 설정
-    - WiFi 성공 + 플래그 → WEB_UI_MODE (WiFi 연결 유지, E-Ink에 IP 표시)
-    - WiFi 실패 + 플래그 → AP_MODE (기존과 동일)
-  - **WEB_UI_MODE** (새 상태):
-    - WiFi 연결된 채로 웹서버 실행 (포트 8080)
-    - E-Ink에 Pi WiFi IP 주소 표시 (스마트폰 접근용)
-    - Captive Portal 없음, 인터넷 연결됨 (Google OAuth 등 가능)
-    - 버튼 재누름/타임아웃 → 직전 사진 복원 → SHUTDOWN
-    - "종료" 버튼 → 디폴트 이미지 → SHUTDOWN
-    - "사진 업데이트" 버튼 → 웹서버 종료 → PHOTO_UPDATE
-  - INIT 내부 단계: 하드웨어 초기화 → 설정 로드 → 배터리 확인 → DB 연결 → 오프라인 모드 확인
-  - AP 모드 버튼 재누름 감지 (AP_BUTTON_EXIT 이벤트)
-  - AP 모드 타임아웃 워치독 (web_ui.timeout 설정값 사용)
-  - WEB_UI_MODE / AP_MODE 종료 시 이전 사진 복원/디폴트 이미지 표시 로직
-  - Watchdog 타이머 (무한루프 방지, systemd watchdog 또는 별도 타이머)
-  - 메모리 관리: 웹 UI 모드 종료 후 이미지 처리 시작 (동시 실행 방지)
+- [x] **버튼 재누름 이벤트 연결** (AP_MODE/WEB_UI_MODE 중)
+  - _setup_button_for_exit() / _clear_button_callback() 헬퍼 추가
+  - AP_MODE 진입 시 재누름 → AP_TIMEOUT 이벤트 포스팅
+  - WEB_UI_MODE 진입 시 재누름 → WEB_UI_TIMEOUT 이벤트 포스팅
+  - 모드 종료 시 콜백 클리어
+
+- [x] **이전 사진 복원 로직 (구조)**
+  - _restore_last_photo() 헬퍼 추가: DB last_displayed_photo_id 조회
+  - AP_TIMEOUT / WEB_UI_TIMEOUT 종료 경로에서 호출
+  - 실제 디스플레이 출력은 TODO (status_display.py 구현 이후 연동)
+
+- [x] **ERROR → AP_MODE 복구 경로**
+  - _enter_error() → _enter_ap_mode() 로 변경 완료
 
 - [ ] **status_display.py** - E-ink 상태 표시
   - AP 모드 안내 화면 (SSID, IP, 접속 방법 텍스트)
@@ -372,4 +378,4 @@ Pi 필요:
 
 ---
 
-*마지막 업데이트: 2026-03-04 (Phase 7 완료: power_manager.py, 타임존 UTC 변환 수정)*
+*마지막 업데이트: 2026-03-05 (Phase 8 95% 완료: 버튼 재누름 연결, 이전 사진 복원 구조, ERROR→AP_MODE 수정)*

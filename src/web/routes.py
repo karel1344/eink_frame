@@ -10,10 +10,10 @@ from fastapi import APIRouter, Request, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, FileResponse
 from pydantic import BaseModel
 
-from ..config import get_config
-from ..wifi.manager import get_wifi_manager
-from ..wifi.ap_mode import get_ap_manager, APStatus
-from ..wifi.captive_portal import get_captive_dns, CAPTIVE_PORTAL_URLS
+from config import get_config
+from wifi.manager import get_wifi_manager
+from wifi.ap_mode import get_ap_manager, APStatus
+from wifi.captive_portal import get_captive_dns, CAPTIVE_PORTAL_URLS
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,7 @@ class StatusResponse(BaseModel):
     next_update: Optional[str]
     current_photo: Optional[dict[str, Any]]
     version: str
+    state: Optional[str] = None
 
 
 class ApiResponse(BaseModel):
@@ -80,7 +81,7 @@ class ApiResponse(BaseModel):
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Serve main web UI page."""
-    from .app import get_templates
+    from web.app import get_templates
 
     templates = get_templates()
     return templates.TemplateResponse(
@@ -99,8 +100,11 @@ async def get_status():
     """Get system status."""
     from power_manager import get_power_manager
 
+    from state_machine import get_state_machine
+
     battery = get_power_manager().get_battery_status()
     wifi_connected = get_wifi_manager().get_status().connected
+    sm = get_state_machine()
     return StatusResponse(
         battery=battery,
         wifi_connected=wifi_connected,
@@ -108,6 +112,7 @@ async def get_status():
         next_update=get_config().update_time,
         current_photo=None,
         version="0.1.0",
+        state=sm.state.name if sm else None,
     )
 
 
@@ -311,11 +316,30 @@ async def stop_ap_mode() -> ApiResponse:
 
 @router.post("/api/system/shutdown")
 async def system_shutdown() -> ApiResponse:
-    """Set next startup alarm and power off the system."""
-    from power_manager import get_power_manager
+    """Request shutdown via state machine, or direct shutdown in dev mode."""
+    from state_machine import get_state_machine, Event
 
+    sm = get_state_machine()
+    if sm:
+        sm.post_event(Event.SHUTDOWN_REQUEST)
+        return ApiResponse(success=True, message="Shutdown requested")
+
+    # Dev mode fallback: direct shutdown
+    from power_manager import get_power_manager
     get_power_manager().schedule_and_shutdown()
     return ApiResponse(success=True, message="Shutdown initiated")
+
+
+@router.post("/api/system/photo-update")
+async def system_photo_update() -> ApiResponse:
+    """Request photo update via state machine."""
+    from state_machine import get_state_machine, Event
+
+    sm = get_state_machine()
+    if sm:
+        sm.post_event(Event.PHOTO_UPDATE_REQUEST)
+        return ApiResponse(success=True, message="Photo update requested")
+    return ApiResponse(success=False, message="State machine not running")
 
 
 class ApplyRequest(BaseModel):
@@ -370,6 +394,11 @@ def _connect_wifi_background(ssid: str, password: str) -> None:
                 # Connection name must match what we created (ssid), not existing like netplan-wlan0-XXX
                 if status.connected and status.ip_address and status.ssid == ssid:
                     logger.info(f"Successfully connected to {ssid}")
+                    # Notify state machine of WiFi success
+                    from state_machine import get_state_machine, Event as SmEvent
+                    sm = get_state_machine()
+                    if sm:
+                        sm.post_event(SmEvent.WIFI_SUCCESS)
                     return
 
             # Wait before retry
@@ -459,7 +488,7 @@ async def captive_portal_page(request: Request):
 
     Directs users to open the full UI in their browser.
     """
-    from .app import get_templates
+    from web.app import get_templates
 
     templates = get_templates()
     return templates.TemplateResponse("captive.html", {"request": request})
@@ -467,7 +496,7 @@ async def captive_portal_page(request: Request):
 
 async def _get_captive_html(request: Request):
     """Return captive portal HTML directly (no redirect)."""
-    from .app import get_templates
+    from web.app import get_templates
 
     templates = get_templates()
     return templates.TemplateResponse("captive.html", {"request": request})

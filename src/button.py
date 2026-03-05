@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
-from .wifi.ap_mode import ExecutionMode
+from wifi.ap_mode import ExecutionMode
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class ButtonHandler:
 
     def __init__(
         self,
-        gpio_pin: int = 17,
+        gpio_pin: int = 27,
         pull_up: bool = True,
         hold_time: float = 3.0,
         mode: ExecutionMode = ExecutionMode.NORMAL,
@@ -52,7 +52,7 @@ class ButtonHandler:
         Returns:
             ButtonHandler instance.
         """
-        from .config import get_config
+        from config import get_config
 
         config = get_config()
 

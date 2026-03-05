@@ -150,7 +150,7 @@ def get_recovery_manager() -> RecoveryManager:
     """Get global recovery manager instance."""
     global _recovery_manager
     if _recovery_manager is None:
-        from ..config import get_config
+        from config import get_config
 
         config = get_config()
         _recovery_manager = RecoveryManager(

@@ -48,32 +48,21 @@ def run_frame(dry_run: bool = False):
     sys.exit(0 if success else 1)
 
 
-def run_production():
-    """Pi 프로덕션 모드: WiFi 연결 → 실패 시 AP 모드 → 웹서버."""
-    import uvicorn
-    from src.startup import run_startup
-    from src.web.app import app
-    from src.power_manager import get_power_manager
+def run_production(dry_run: bool = False):
+    """Pi 프로덕션 모드: 상태머신이 전체 라이프사이클 관리."""
+    from src.state_machine import create_state_machine
 
     logger.info("=" * 50)
-    logger.info("E-Ink Photo Frame - Production Mode")
+    logger.info("E-Ink Photo Frame - Production Mode%s", " (dry-run)" if dry_run else "")
     logger.info("=" * 50)
 
-    state = run_startup()
-    logger.info(f"Startup complete, state: {state}")
-
-    # Initialize PowerManager: sends GPIO17 SYS_UP pulse so Witty Pi
-    # knows Pi is running (required for power-cut detection at shutdown).
-    # RTC sync and alarm setting are intentionally NOT done here —
-    # Pi system time is not yet NTP-synced at this point. Sync + alarm
-    # are only written in schedule_and_shutdown(), which is triggered by
-    # the user after WiFi has been active long enough for NTP to settle.
-    get_power_manager()
-
-    port = 80 if state == "ap_mode" else 8000
-    logger.info(f"Starting web server on port {port}")
-
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    sm = create_state_machine(dry_run=dry_run)
+    try:
+        sm.run()  # Blocks until SHUTDOWN or ERROR
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt received")
+        sm.stop()
+    sys.exit(0)
 
 
 if __name__ == "__main__":
@@ -82,4 +71,4 @@ if __name__ == "__main__":
     elif "--dev" in sys.argv:
         run_dev()
     else:
-        run_production()
+        run_production(dry_run="--dry-run" in sys.argv)

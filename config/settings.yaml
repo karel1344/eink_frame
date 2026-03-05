@@ -3,7 +3,7 @@ battery:
   low_voltage_threshold: 3.3
   show_indicator: true
 button:
-  gpio_pin: 17
+  gpio_pin: 27
   hold_time: 3
   pull_up: true
 display:
