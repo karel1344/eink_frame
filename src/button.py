@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import warnings
 from typing import Callable, Optional
 
@@ -42,6 +43,7 @@ class ButtonHandler:
         self._on_press: Optional[Callable[[], None]] = None
         self._on_hold: Optional[Callable[[], None]] = None
         self._available = False
+        self._arm_timer: Optional[threading.Timer] = None
 
     @classmethod
     def from_config(cls, mode: Optional[ExecutionMode] = None) -> "ButtonHandler":
@@ -112,9 +114,14 @@ class ButtonHandler:
                 )
                 logger.info(f"Button handler setup on GPIO {self.gpio_pin}")
 
+            # cancel any pending stable-release arm timer
+            if self._arm_timer is not None:
+                self._arm_timer.cancel()
+                self._arm_timer = None
+
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                self._button.when_released = None  # cancel any pending arm
+                self._button.when_released = None
                 self._button.when_pressed = on_press if on_press else None
                 self._button.when_held = on_hold if on_hold else None
 
@@ -135,35 +142,48 @@ class ButtonHandler:
         self,
         on_press: Optional[Callable[[], None]] = None,
         on_hold: Optional[Callable[[], None]] = None,
+        stable_secs: float = 1.0,
     ) -> bool:
-        """버튼이 현재 눌려 있으면 완전히 떼진 후에 콜백을 등록한다.
+        """버튼이 stable_secs 동안 HIGH(떼짐)를 유지한 후에 콜백을 등록한다.
 
-        부팅 시 홀드로 모드에 진입한 경우, 손을 떼는 동작이 곧바로
-        종료 이벤트를 발생시키지 않도록 하기 위해 사용한다.
+        단순 엣지 감지 대신 안정 구간을 요구하므로 바운스에 강건하다.
+        setup()이 호출되면 대기 타이머도 자동 취소된다.
         """
         if self._button is None:
             return self.setup(on_press=on_press, on_hold=on_hold)
 
-        def _on_release():
+        def _cancel():
+            if self._arm_timer is not None:
+                self._arm_timer.cancel()
+                self._arm_timer = None
+
+        def _arm():
+            self._arm_timer = None
+            if self._button is None or self._button.is_pressed:
+                return
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 self._button.when_released = None
+                self._button.when_pressed = None
             self.setup(on_press=on_press, on_hold=on_hold)
-            logger.debug("Button exit callback armed after release")
+            logger.debug("Button exit callback armed after %.1fs stable release", stable_secs)
 
-        # when_released를 먼저 등록한 뒤 is_pressed 확인 (race condition 방지)
+        def _start_wait():
+            _cancel()
+            self._arm_timer = threading.Timer(stable_secs, _arm)
+            self._arm_timer.daemon = True
+            self._arm_timer.start()
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            self._button.when_released = _on_release
+            self._button.when_released = lambda: _start_wait()
+            self._button.when_pressed = lambda: _cancel()
 
         if not self._button.is_pressed:
-            # 이미 떼진 상태 → 즉시 when_pressed 등록
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                self._button.when_released = None
-            return self.setup(on_press=on_press, on_hold=on_hold)
+            # 이미 떼진 상태 → 즉시 대기 시작
+            _start_wait()
 
-        logger.debug("Button held — arming deferred until release")
+        logger.debug("Button held — waiting %.1fs stable release", stable_secs)
         return True
 
     def cleanup(self) -> None:

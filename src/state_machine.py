@@ -296,11 +296,11 @@ class StateMachine:
         if timeout > 0:
             self._start_timeout(timeout, Event.WEB_UI_TIMEOUT)
 
-        # 부팅 홀드로 진입했으므로 손을 뗀 후에 "재누름 = 종료" 콜백 등록
+        # 부팅 홀드로 진입했으므로 손을 뗀 후에 "재누름 = 사용자 종료" 콜백 등록
         try:
             from button import get_button_handler
             get_button_handler().setup_after_release(
-                on_press=lambda: self.post_event(Event.WEB_UI_TIMEOUT)
+                on_press=lambda: self.post_event(Event.SHUTDOWN_REQUEST)
             )
         except Exception:
             logger.warning("Failed to register button exit callback")
