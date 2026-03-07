@@ -737,3 +737,151 @@ async def get_thumbnail(photo_id: int):
     if thumb_path is None or not thumb_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     return FileResponse(thumb_path, media_type="image/jpeg")
+
+
+# ============================================================================
+# Image Preview API
+# ============================================================================
+
+_PALETTE_RGB = [
+    (  0,   0,   0),   # 0: Black
+    (255, 255, 255),   # 1: White
+    (207, 212,   4),   # 2: Yellow
+    (150,  28,  23),   # 3: Red
+    (  0,   0,   0),   # 4: unused
+    ( 12,  84, 172),   # 5: Blue
+    ( 29,  90,  72),   # 6: Green
+]
+_COLOR_NAMES = ["Black", "White", "Yellow", "Red", "(unused)", "Blue", "Green"]
+
+
+def _build_eink_palette():
+    from PIL import Image
+    pal = Image.new("P", (1, 1))
+    flat = [c for rgb in _PALETTE_RGB for c in rgb] + [0] * (3 * (256 - len(_PALETTE_RGB)))
+    pal.putpalette(flat)
+    return pal
+
+
+def _img_to_b64(img) -> str:
+    import base64, io
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _simulate_eink(img):
+    """Quantize PIL RGB image → (simulated_rgb, stats)."""
+    from PIL import Image
+    pal = _build_eink_palette()
+    quantized = img.quantize(palette=pal, dither=Image.Dither.FLOYDSTEINBERG)
+    raw = quantized.tobytes("raw")
+    total = max(len(raw), 1)
+    counts = [0] * len(_PALETTE_RGB)
+    for b in raw:
+        if b < len(counts):
+            counts[b] += 1
+    stats = {
+        _COLOR_NAMES[i]: round(counts[i] / total * 100, 1)
+        for i in range(len(_PALETTE_RGB))
+        if _COLOR_NAMES[i] != "(unused)"
+    }
+    return quantized.convert("RGB"), stats
+
+
+def _get_random_photo_path() -> Optional[Path]:
+    import random
+    config = get_config()
+    photos_path = config.get("photo_sources.local.path", "photos/local")
+    photos_dir = Path(__file__).parent.parent.parent / photos_path
+    if not photos_dir.exists():
+        return None
+    exts = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp"}
+    photos = [p for p in photos_dir.iterdir() if p.is_file() and p.suffix.lower() in exts]
+    return random.choice(photos) if photos else None
+
+
+class ImagePreviewParams(BaseModel):
+    brightness: float = 1.0
+    gamma: float = 1.0
+    contrast: float = 1.2
+    saturation: float = 1.5
+    sharpness: float = 1.3
+    warmth: float = 1.0
+    photo_path: Optional[str] = None
+
+
+def _make_processor(params: ImagePreviewParams, *, enhancements: bool = True):
+    from image_processor import ImageProcessor
+    config = get_config()
+    if enhancements:
+        br, gm, co, sa, sh, wa = (
+            params.brightness, params.gamma, params.contrast,
+            params.saturation, params.sharpness, params.warmth,
+        )
+    else:
+        br = gm = co = sa = sh = wa = 1.0
+    return ImageProcessor(
+        display_width=800,
+        display_height=480,
+        fill_mode=config.get("image_processing.fill_mode", "fit"),
+        auto_rotate=config.get("image_processing.auto_rotate", True),
+        show_battery=False,
+        brightness=br, gamma=gm, contrast=co,
+        saturation=sa, sharpness=sh, warmth=wa,
+    )
+
+
+@router.post("/api/image-preview/random")
+async def image_preview_random(params: ImagePreviewParams) -> dict[str, Any]:
+    """Pick a random local photo and return original + E-Ink simulation."""
+    import asyncio
+
+    photo_path = _get_random_photo_path()
+    if photo_path is None:
+        return {"error": "사진이 없습니다. 사진 탭에서 먼저 업로드하세요."}
+
+    def _run():
+        orig_img = _make_processor(params, enhancements=False).process(photo_path)
+        enh_img  = _make_processor(params, enhancements=True).process(photo_path)
+        sim, stats = _simulate_eink(enh_img)
+        return _img_to_b64(orig_img), _img_to_b64(sim), stats
+
+    try:
+        loop = asyncio.get_running_loop()
+        orig_b64, sim_b64, stats = await loop.run_in_executor(None, _run)
+        return {
+            "photo_path": str(photo_path),
+            "photo_name": photo_path.name,
+            "original_b64": orig_b64,
+            "simulated_b64": sim_b64,
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.exception("image_preview_random failed")
+        return {"error": str(e)}
+
+
+@router.post("/api/image-preview/process")
+async def image_preview_process(params: ImagePreviewParams) -> dict[str, Any]:
+    """Re-process a photo with updated params and return E-Ink simulation."""
+    import asyncio
+
+    if not params.photo_path:
+        raise HTTPException(status_code=400, detail="photo_path required")
+    photo_path = Path(params.photo_path)
+    if not photo_path.exists():
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    def _run():
+        enh_img = _make_processor(params, enhancements=True).process(photo_path)
+        sim, stats = _simulate_eink(enh_img)
+        return _img_to_b64(sim), stats
+
+    try:
+        loop = asyncio.get_running_loop()
+        sim_b64, stats = await loop.run_in_executor(None, _run)
+        return {"simulated_b64": sim_b64, "stats": stats}
+    except Exception as e:
+        logger.exception("image_preview_process failed")
+        raise HTTPException(status_code=500, detail=str(e))
