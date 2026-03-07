@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ExifTags
+from PIL import Image, ImageDraw, ImageEnhance, ExifTags
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,9 @@ class ImageProcessor:
         auto_rotate: bool = True,
         show_battery: bool = True,
         assets_dir: Path | None = None,
+        contrast: float = 1.0,
+        saturation: float = 1.0,
+        sharpness: float = 1.0,
     ) -> None:
         if rotation not in (0, 90, 180, 270):
             raise ValueError(f"rotation must be 0/90/180/270, got {rotation}")
@@ -71,6 +74,9 @@ class ImageProcessor:
         self._auto_rotate = auto_rotate
         self._show_battery = show_battery
         self._assets_dir = assets_dir
+        self._contrast = contrast
+        self._saturation = saturation
+        self._sharpness = sharpness
 
     # ------------------------------------------------------------------
     # Public API
@@ -97,6 +103,9 @@ class ImageProcessor:
             auto_rotate=cfg.image_auto_rotate,
             show_battery=cfg.battery_show_indicator,
             assets_dir=assets_dir,
+            contrast=float(cfg.get("image_processing.contrast", 1.0)),
+            saturation=float(cfg.get("image_processing.saturation", 1.0)),
+            sharpness=float(cfg.get("image_processing.sharpness", 1.0)),
         )
 
     @property
@@ -140,11 +149,19 @@ class ImageProcessor:
         # 4. Ensure RGB
         img = img.convert("RGB")
 
-        # 5. Battery overlay
+        # 5. Enhancement — e-ink 색 재현 한계 보완 (양자화 전에 적용)
+        if self._contrast != 1.0:
+            img = ImageEnhance.Contrast(img).enhance(self._contrast)
+        if self._saturation != 1.0:
+            img = ImageEnhance.Color(img).enhance(self._saturation)
+        if self._sharpness != 1.0:
+            img = ImageEnhance.Sharpness(img).enhance(self._sharpness)
+
+        # 6. Battery overlay
         if self._show_battery and battery_voltage is not None:
             img = _draw_battery(img, battery_voltage, self._assets_dir)
 
-        # 6. Compensate for physical display rotation
+        # 7. Compensate for physical display rotation
         #    rotate() with expand=True keeps the full image and adjusts size
         if self._rotation == 90:
             img = img.rotate(-90, expand=True)   # CCW 90 → correct for CW-mounted display
