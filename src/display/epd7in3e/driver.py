@@ -156,9 +156,23 @@ class EPD:
         return 0
 
     def getbuffer(self, image):
-        # Create a pallette with the 7 colors supported by the panel
-        pal_image = Image.new("P", (1,1))
-        pal_image.putpalette( (0,0,0,  255,255,255,  255,255,0,  255,0,0,  0,0,0,  0,0,255,  0,255,0) + (0,0,0)*249)
+        # Calibrated palette: measured actual display colors instead of ideal
+        # fully-saturated values.  Using real colors improves dithering because
+        # Floyd-Steinberg error diffusion is computed against what the panel
+        # actually reproduces, not what we wish it would.
+        # Index order must match panel color codes: 0=Black 1=White 2=Yellow
+        # 3=Red 4=unused(→Black) 5=Blue 6=Green.
+        pal_image = Image.new("P", (1, 1))
+        pal_image.putpalette(
+            (35,  28,  45,   # 0: Black
+             184, 202, 198,  # 1: White
+             207, 212,   4,  # 2: Yellow
+             150,  28,  23,  # 3: Red
+              35,  28,  45,  # 4: unused slot (same as Black → quantizer picks index 0 first)
+              12,  84, 172,  # 5: Blue
+              29,  90,  72)  # 6: Green
+            + (0, 0, 0) * 249
+        )
 
         # Check if we need to rotate the image
         imwidth, imheight = image.size
@@ -169,7 +183,7 @@ class EPD:
         else:
             logger.warning("Invalid image dimensions: %d x %d, expected %d x %d" % (imwidth, imheight, self.width, self.height))
 
-        # Convert the source image to the 7 colors, dithering if needed
+        # Quantize with Floyd-Steinberg dithering (PIL default when palette= is given)
         image_7color = image_temp.convert("RGB").quantize(palette=pal_image)
         buf_7color = bytearray(image_7color.tobytes('raw'))
 

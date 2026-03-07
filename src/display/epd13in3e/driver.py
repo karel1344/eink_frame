@@ -214,15 +214,19 @@ class EPD:
 
     def getbuffer(self, image: Image.Image) -> list:
         """Quantize PIL image to 6-color palette and pack 2 pixels per byte."""
+        # Calibrated palette: measured actual display colors instead of ideal
+        # fully-saturated values.  Using real colors improves dithering because
+        # Floyd-Steinberg error diffusion is computed against what the panel
+        # actually reproduces, not what we wish it would.
         pal_image = Image.new("P", (1, 1))
         pal_image.putpalette(
-            (0, 0, 0,          # 0: black
-             255, 255, 255,    # 1: white
-             255, 255, 0,      # 2: yellow
-             255, 0, 0,        # 3: red
-             0, 0, 0,          # 4: (unused slot)
-             0, 0, 255,        # 5: blue
-             0, 255, 0)        # 6: green
+            (35,  28,  45,   # 0: Black
+             184, 202, 198,  # 1: White
+             207, 212,   4,  # 2: Yellow
+             150,  28,  23,  # 3: Red
+              35,  28,  45,  # 4: unused slot (same as Black → quantizer picks index 0 first)
+              12,  84, 172,  # 5: Blue
+              29,  90,  72)  # 6: Green
             + (0, 0, 0) * 249
         )
 
