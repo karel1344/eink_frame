@@ -357,6 +357,7 @@ class StateMachine:
             self._cancel_timeout()
             self._clear_button_callback()
             self._stop_web_server()
+            self._restore_last_photo()
             self._enter_shutdown()
         elif event == Event.PHOTO_UPDATE_REQUEST:
             self._cancel_timeout()

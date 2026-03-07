@@ -10,7 +10,9 @@ e-ink 디스플레이에 표시한다.
 
 from __future__ import annotations
 
+import functools
 import logging
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -18,6 +20,90 @@ if TYPE_CHECKING:
     from PIL.Image import Image
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=1)
+def _find_korean_font_path() -> Optional[str]:
+    """한글을 지원하는 폰트 파일 경로를 자동 탐색 (캐싱됨).
+
+    1단계: fc-match (fontconfig 설치 시 사용)
+    2단계: /usr/share/fonts 하위에서 한글 폰트 파일명 패턴으로 glob 검색
+    """
+    # 1. fc-match 시도
+    try:
+        result = subprocess.run(
+            ["fc-match", ":lang=ko:spacing=proportional", "--format=%{file}"],
+            capture_output=True, text=True, timeout=3,
+        )
+        path = result.stdout.strip()
+        if path and Path(path).exists():
+            logger.debug("fc-match found Korean font: %s", path)
+            return path
+    except FileNotFoundError:
+        logger.debug("fc-match not available — falling back to glob search")
+    except Exception as e:
+        logger.debug("fc-match failed: %s — falling back to glob search", e)
+
+    # 2. 파일명 패턴으로 직접 검색 (fontconfig 없이도 동작)
+    _KOREAN_PATTERNS = [
+        "NotoSansCJK*.ttc",
+        "NotoSansCJK*.ttf",
+        "NotoSansKR*.otf",
+        "NotoSansKR*.ttf",
+        "NanumGothicBold.ttf",
+        "NanumGothic.ttf",
+        "Nanum*.ttf",
+    ]
+    for font_dir in [Path("/usr/share/fonts"), Path("/usr/local/share/fonts")]:
+        if not font_dir.exists():
+            continue
+        for pattern in _KOREAN_PATTERNS:
+            matches = sorted(font_dir.rglob(pattern))
+            if matches:
+                logger.debug("Glob found Korean font: %s", matches[0])
+                return str(matches[0])
+
+    logger.warning(
+        "Korean font not found — install with: sudo apt-get install fonts-noto-cjk"
+    )
+    return None
+
+
+def _load_font_for_korean(path: str, size: int):
+    """폰트를 로드하되, TTC 파일은 한글 글리프가 있는 인덱스를 자동 선택.
+
+    TTC(TrueType Collection)는 여러 폰트가 하나의 파일에 묶여 있다.
+    NotoSansCJK.ttc의 경우: index 0=SC(중국어), 1=TC, 2=JP, 3=KR(한국어).
+    Pillow 기본값(index=0)은 SC를 로드하므로 한글이 tofu box로 표시된다.
+    각 인덱스를 시도해 한글 '가' 글리프 폭이 가장 큰 것을 선택한다.
+    """
+    from PIL import ImageFont
+
+    if not path.lower().endswith(".ttc"):
+        return ImageFont.truetype(path, size)
+
+    test_char = "가"
+    best_width = -1
+    best_font = None
+    for idx in range(8):
+        try:
+            font = ImageFont.truetype(path, size, index=idx)
+        except Exception:
+            break  # 인덱스 범위 초과
+        try:
+            bb = font.getbbox(test_char)
+            w = (bb[2] - bb[0]) if bb else 0
+        except Exception:
+            w = 0
+        if w > best_width:
+            best_width = w
+            best_font = font
+
+    if best_font is not None:
+        logger.debug("TTC Korean index selected (glyph_width=%d): %s", best_width, path)
+        return best_font
+    return ImageFont.truetype(path, size)
+
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 _ASSETS_DIR   = _PROJECT_ROOT / "assets"
@@ -154,32 +240,39 @@ def _generate_info_screen(
     img  = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    _FONT_PATHS = [
-        # 한글 지원 폰트 (Pi: sudo apt-get install fonts-noto-cjk)
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        # 나눔고딕 (Pi: sudo apt-get install fonts-nanum)
-        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        # macOS 한글 폰트
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
-        # 한글 미지원 fallback
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/Library/Fonts/Arial.ttf",
-    ]
+    # fc-match로 찾은 한글 폰트를 최우선으로 시도
+    _fc_font = _find_korean_font_path()
+    _FONT_PATHS = (
+        ([_fc_font] if _fc_font else [])
+        + [
+            # 한글 지원 폰트 (Pi: sudo apt-get install fonts-noto-cjk)
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            # 나눔고딕 (Pi: sudo apt-get install fonts-nanum)
+            "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+            "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+            # macOS 한글 폰트
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+            # 한글 미지원 fallback
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/Library/Fonts/Arial.ttf",
+        ]
+    )
 
     def load_font(size: int):
         for path in _FONT_PATHS:
             try:
-                return ImageFont.truetype(path, size)
-            except Exception:
-                pass
+                font = _load_font_for_korean(path, size)
+                logger.debug("Loaded font: %s (size=%d)", path, size)
+                return font
+            except Exception as e:
+                logger.debug("Font load failed %s: %s", path, e)
         try:
             return ImageFont.load_default(size=size)
         except TypeError:
@@ -239,8 +332,7 @@ def _generate_info_screen(
     fnt_lbl   = load_font(label_sz)
     fnt_url   = load_font(url_sz)
 
-    BLUE  = (12, 84, 172)
-    GRAY  = (80, 80, 80)
+    GRAY  = (110, 110, 110)
     BLACK = (0, 0, 0)
 
     def put(y: int, text: str, font, fill) -> int:
@@ -257,7 +349,7 @@ def _generate_info_screen(
         y = put(y, value, fnt_val, BLACK) + pad
 
     y = put(y, "Web UI", fnt_lbl, GRAY) + 6
-    put(y, url, fnt_url, BLUE)
+    put(y, url, fnt_url, BLACK)
 
     return img
 

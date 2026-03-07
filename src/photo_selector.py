@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 from datetime import datetime
@@ -51,12 +52,11 @@ class PhotoSelector:
             logger.warning("No photos available in any source")
             return None
 
-        candidates = self._filter_candidates(all_photos)
-
         if self._mode == "sequential":
+            candidates = self._filter_candidates(all_photos)
             return self._pick_sequential(candidates)
         else:
-            return random.choice(candidates)
+            return self._pick_shuffle(all_photos)
 
     # ------------------------------------------------------------------
     # Internals
@@ -86,6 +86,47 @@ class PhotoSelector:
             len(candidates), len(recent_ids),
         )
         return candidates
+
+    def _pick_shuffle(self, all_photos: list) -> object:
+        """Shuffle-deck selection: show every photo once before repeating.
+
+        Persists a queue of photo IDs in the DB (key: 'shuffle_queue').
+        On each call:
+          1. Load queue; remove IDs for deleted photos.
+          2. Insert any new photos at random positions in the remaining queue.
+          3. If queue is empty, generate a fresh shuffled queue from all photos.
+          4. Pop and return the first photo; save updated queue.
+        """
+        photo_map = {p.id: p for p in all_photos}
+        all_ids = set(photo_map.keys())
+
+        # Load persisted queue
+        raw = self._db.get_state("shuffle_queue")
+        queue: list[int] = json.loads(raw) if raw else []
+
+        # Drop IDs for photos that no longer exist
+        queue = [pid for pid in queue if pid in all_ids]
+
+        # Insert newly added photos at random positions
+        queued_ids = set(queue)
+        new_ids = [pid for pid in all_ids if pid not in queued_ids]
+        if new_ids:
+            for pid in new_ids:
+                pos = random.randint(0, len(queue))
+                queue.insert(pos, pid)
+            logger.debug("Inserted %d new photo(s) into shuffle queue", len(new_ids))
+
+        # If exhausted, start a new cycle
+        if not queue:
+            queue = list(all_ids)
+            random.shuffle(queue)
+            logger.info("Shuffle queue exhausted — starting new cycle (%d photos)", len(queue))
+
+        photo_id = queue.pop(0)
+        self._db.set_state("shuffle_queue", json.dumps(queue))
+        logger.debug("Shuffle pick: photo_id=%d, %d remaining in queue", photo_id, len(queue))
+
+        return photo_map.get(photo_id) or random.choice(all_photos)
 
     @staticmethod
     def _pick_sequential(candidates: list) -> object:
