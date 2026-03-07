@@ -19,14 +19,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Install system packages required for GPIO and I2C
+# Install system packages required for GPIO, I2C, and fonts
 echo "Installing system packages..."
 apt-get update -qq
 apt-get install -y \
     python3-venv \
     python3-lgpio \
     liblgpio-dev \
-    i2c-tools
+    i2c-tools \
+    fonts-noto-cjk
 echo "System packages installed"
 
 # Enable I2C if not already enabled
