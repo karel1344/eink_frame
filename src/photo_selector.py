@@ -90,41 +90,60 @@ class PhotoSelector:
     def _pick_shuffle(self, all_photos: list) -> object:
         """Shuffle-deck selection: show every photo once before repeating.
 
-        Persists a queue of photo IDs in the DB (key: 'shuffle_queue').
+        Persists {remaining, shown} in the DB (key: 'shuffle_queue').
+        - remaining: IDs not yet shown this cycle (in shuffled order)
+        - shown:     IDs already shown this cycle
+
         On each call:
-          1. Load queue; remove IDs for deleted photos.
-          2. Insert any new photos at random positions in the remaining queue.
-          3. If queue is empty, generate a fresh shuffled queue from all photos.
-          4. Pop and return the first photo; save updated queue.
+          1. Load state; drop IDs for deleted photos from both lists.
+          2. Any photo not in remaining OR shown is treated as new and
+             inserted at a random position in remaining.
+          3. If remaining is empty (all shown), start a new cycle.
+          4. Pop the first ID from remaining, add to shown, save, return.
         """
         photo_map = {p.id: p for p in all_photos}
         all_ids = set(photo_map.keys())
 
-        # Load persisted queue
         raw = self._db.get_state("shuffle_queue")
-        queue: list[int] = json.loads(raw) if raw else []
+        parsed = json.loads(raw) if raw else {}
+        # Support migration from old format (plain list) to new dict format
+        if isinstance(parsed, list):
+            parsed = {}
+        data: dict = parsed
+        remaining: list[int] = data.get("remaining", [])
+        shown: set[int] = set(data.get("shown", []))
 
         # Drop IDs for photos that no longer exist
-        queue = [pid for pid in queue if pid in all_ids]
+        remaining = [pid for pid in remaining if pid in all_ids]
+        shown = {pid for pid in shown if pid in all_ids}
 
-        # Insert newly added photos at random positions
-        queued_ids = set(queue)
-        new_ids = [pid for pid in all_ids if pid not in queued_ids]
+        # Insert newly added photos into remaining at random positions
+        known_ids = set(remaining) | shown
+        new_ids = [pid for pid in all_ids if pid not in known_ids]
         if new_ids:
             for pid in new_ids:
-                pos = random.randint(0, len(queue))
-                queue.insert(pos, pid)
+                pos = random.randint(0, len(remaining))
+                remaining.insert(pos, pid)
             logger.debug("Inserted %d new photo(s) into shuffle queue", len(new_ids))
 
-        # If exhausted, start a new cycle
-        if not queue:
-            queue = list(all_ids)
-            random.shuffle(queue)
-            logger.info("Shuffle queue exhausted — starting new cycle (%d photos)", len(queue))
+        # If remaining is exhausted, start a new cycle
+        if not remaining:
+            remaining = list(all_ids)
+            random.shuffle(remaining)
+            shown = set()
+            logger.info("Shuffle queue exhausted — starting new cycle (%d photos)", len(remaining))
 
-        photo_id = queue.pop(0)
-        self._db.set_state("shuffle_queue", json.dumps(queue))
-        logger.debug("Shuffle pick: photo_id=%d, %d remaining in queue", photo_id, len(queue))
+        photo_id = remaining.pop(0)
+        shown.add(photo_id)
+
+        self._db.set_state("shuffle_queue", json.dumps({
+            "remaining": remaining,
+            "shown": list(shown),
+        }))
+        logger.debug(
+            "Shuffle pick: photo_id=%d, %d remaining / %d shown this cycle",
+            photo_id, len(remaining), len(shown),
+        )
 
         return photo_map.get(photo_id) or random.choice(all_photos)
 

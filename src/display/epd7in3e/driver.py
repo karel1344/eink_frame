@@ -82,23 +82,6 @@ class EPD:
         self.send_data(0X00)
         self.ReadBusyH()
 
-    def TurnOnDisplayFast(self):
-        """Quick refresh (experimental) — 잔상이 남을 수 있음.
-
-        0x12 커맨드의 파라미터를 0x01로 변경해 패널의 quick-refresh 모드를 시도.
-        패널이 지원하지 않으면 일반 리프레시와 동일하게 동작한다.
-        """
-        self.send_command(0x04) # POWER_ON
-        self.ReadBusyH()
-
-        self.send_command(0x12) # DISPLAY_REFRESH (quick flag)
-        self.send_data(0x01)    # 0x01 = quick refresh (일부 패널에서 지원)
-        self.ReadBusyH()
-
-        self.send_command(0x02) # POWER_OFF
-        self.send_data(0x00)
-        self.ReadBusyH()
-
     def init(self):
         if (epdconfig.module_init() != 0):
             return -1
@@ -222,13 +205,6 @@ class EPD:
         self.send_data2(image)
 
         self.TurnOnDisplay()
-
-    def display_fast(self, image):
-        """Fast display — TurnOnDisplayFast() 사용."""
-        self.send_command(0x10)
-        self.send_data2(image)
-
-        self.TurnOnDisplayFast()
 
     def Clear(self, color=0x11):
         self.send_command(0x10)

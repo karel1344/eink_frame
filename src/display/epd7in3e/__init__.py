@@ -53,18 +53,6 @@ class Display7in3e(EinkDisplay):
         self._epd.display(buf)
         logger.debug("Display updated")
 
-    def show_fast(self, image: Image.Image) -> None:
-        """Quick refresh — 이전 이미지의 잔상이 남을 수 있음 (실험적).
-
-        0x12 커맨드에 0x01 파라미터를 전달해 패널의 fast-refresh를 시도.
-        패널이 지원하지 않으면 일반 리프레시와 동일하게 동작한다.
-        """
-        if self._epd is None:
-            raise RuntimeError("Call init() before show_fast()")
-        buf = self._epd.getbuffer(image)
-        self._epd.display_fast(buf)
-        logger.debug("Display fast-updated")
-
     def clear(self) -> None:
         if self._epd is None:
             raise RuntimeError("Call init() before clear()")
