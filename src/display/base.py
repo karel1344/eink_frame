@@ -41,6 +41,14 @@ class EinkDisplay(ABC):
     def show(self, image: Image.Image) -> None:
         """Display a PIL Image. Image must already be resized to (width, height)."""
 
+    def show_fast(self, image: Image.Image) -> None:
+        """Display with fast (lower-quality) waveform. May leave ghosting.
+
+        Default implementation falls back to normal show().
+        Subclasses may override with hardware-specific fast-refresh support.
+        """
+        self.show(image)
+
     @abstractmethod
     def clear(self) -> None:
         """Fill display with white."""

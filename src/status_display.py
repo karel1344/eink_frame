@@ -372,7 +372,7 @@ def _show_info_screen(image: "Image.Image", debug_name: str, dry_run: bool) -> b
 
         display = get_display(model)
         display.init()
-        display.show(image)
+        display.show_fast(image)
         display.sleep()
         return True
 
