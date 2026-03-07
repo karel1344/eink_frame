@@ -373,7 +373,25 @@ class StateMachine:
             ap._start_timeout_watchdog()
 
         logger.info("AP_MODE: SSID=%s", ap.ssid)
-        # TODO: status_display.show_ap_info(ap.ssid, ap.ip)
+
+        # E-Ink 화면에 AP 안내 표시 (백그라운드 — 디스플레이 갱신이 느리므로 비차단)
+        _ssid = ap.ssid or ""
+        _ip   = ap.AP_IP
+        _dry  = self._dry_run
+        try:
+            from config import get_config as _gc
+            _pw = _gc().get("web_ui.ap_password", "")
+        except Exception:
+            _pw = ""
+
+        def _show_ap_screen() -> None:
+            try:
+                from status_display import show_ap_mode_screen
+                show_ap_mode_screen(ssid=_ssid, ip=_ip, password=_pw, dry_run=_dry)
+            except Exception:
+                logger.exception("AP 화면 표시 실패")
+
+        threading.Thread(target=_show_ap_screen, daemon=True, name="ap-screen").start()
 
         # Start web server on port 80
         self._start_web_server(port=80)

@@ -522,6 +522,7 @@
         .ip-preview-lbl { font-size: 0.72rem; color: #888; text-align: center; margin-bottom: 3px; }
         .ip-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(255,255,255,0.7); }
         .ip-overlay.show { display: flex; }
+        @media (max-width: 600px) { .ip-preview-row { grid-template-columns: 1fr; } }
         .ip-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 14px; font-size: 0.75rem; }
         .ip-stat { display: flex; align-items: center; gap: 3px; }
         .ip-swatch { width: 9px; height: 9px; border-radius: 2px; border: 1px solid #ccc; flex-shrink: 0; }
@@ -741,6 +742,7 @@
                             <div class="ip-preview-box">
                                 <img id="ip-orig-img" alt="original">
                                 <div id="ip-no-photo" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:0.8rem;text-align:center;padding:8px;">사진 없음</div>
+                                <div class="ip-overlay" id="ip-orig-spinner"><span class="spinner"></span></div>
                             </div>
                         </div>
                         <div>
@@ -1171,7 +1173,7 @@
                     img.onload = function() {
                         cropperInstance = new Cropper(img, {
                             aspectRatio: aspect.ratio,
-                            viewMode: 1,
+                            viewMode: 0,
                             autoCropArea: 1.0,
                             dragMode: 'move',
                             guides: true,
@@ -1222,7 +1224,7 @@
                 cropConfirmBtn.addEventListener('click', function() {
                     if (!cropperInstance || !cropCurrentFile) return;
                     var file = cropCurrentFile;
-                    var canvas = cropperInstance.getCroppedCanvas();
+                    var canvas = cropperInstance.getCroppedCanvas({ fillColor: '#fff' });
                     closeCropModal();
                     canvas.toBlob(function(blob) { doUpload(file, blob); },
                         file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.92);
@@ -1407,8 +1409,14 @@
             }
 
             function setIpSpinner(show) {
-                var sp = document.getElementById('ip-spinner');
-                if (sp) sp.classList[show ? 'add' : 'remove']('show');
+                ['ip-spinner', 'ip-orig-spinner'].forEach(function(id) {
+                    var sp = document.getElementById(id);
+                    if (sp) sp.classList[show ? 'add' : 'remove']('show');
+                });
+                if (show) {
+                    var noPhoto = document.getElementById('ip-no-photo');
+                    if (noPhoto) noPhoto.style.display = 'none';
+                }
             }
 
             function renderIpStats(stats) {
@@ -1452,7 +1460,6 @@
             function loadRandomPhoto() {
                 setIpSpinner(true);
                 var noPhoto = document.getElementById('ip-no-photo');
-                if (noPhoto) noPhoto.style.display = 'flex';
                 fetch('/api/image-preview/random', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1460,7 +1467,7 @@
                 }).then(function(r) { return r.json(); }).then(function(data) {
                     setIpSpinner(false);
                     if (data.error) {
-                        if (noPhoto) noPhoto.textContent = data.error;
+                        if (noPhoto) { noPhoto.textContent = data.error; noPhoto.style.display = 'flex'; }
                         return;
                     }
                     ipCurrentPhoto = data.photo_path;
