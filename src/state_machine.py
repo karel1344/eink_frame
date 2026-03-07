@@ -558,13 +558,8 @@ class StateMachine:
     def _restore_last_photo(self) -> None:
         """Restore the last displayed photo before shutdown (버튼/타임아웃 종료 시)."""
         try:
-            from database import get_db
-            photo_id = get_db().last_displayed_photo_id
-            if photo_id is not None:
-                logger.info("Restoring last photo (id=%s) — TODO: status_display", photo_id)
-                # TODO: status_display.show_last_photo(photo_id)
-            else:
-                logger.info("No previous photo to restore")
+            from status_display import restore_last_photo
+            restore_last_photo(dry_run=self._dry_run)
         except Exception:
             logger.exception("Failed to restore last photo")
 

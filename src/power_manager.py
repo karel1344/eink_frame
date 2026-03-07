@@ -72,9 +72,10 @@ class PowerManager:
     # ------------------------------------------------------------------
 
     def _init_i2c(self) -> None:
-        if self._dry_run:
-            logger.info("PowerManager: dry-run mode, I2C disabled")
-            return
+        # Always attempt SYS_UP signal and I2C connection, even in dry-run mode.
+        # On Mac/non-Pi, gpiozero/smbus2 import errors are handled gracefully
+        # inside _signal_system_up() and _try_connect_i2c().
+        # dry_run only skips the final 'systemctl poweroff' step.
 
         # Signal SYS_UP to Witty Pi regardless of I2C status.
         # Without this pulse, Witty Pi won't recognise the Pi as "running"
@@ -117,13 +118,14 @@ class PowerManager:
     def _ensure_connected(self) -> bool:
         """Return True if Witty Pi I2C is available.
 
-        If not yet connected and not in dry-run mode, attempts a single
-        reconnection. This allows the service to recover automatically
-        if the Witty Pi was not ready at boot time.
+        Attempts a single reconnection if not yet connected. This allows
+        the service to recover if Witty Pi was not ready at boot time.
+        Note: dry_run only suppresses 'systemctl poweroff'; I2C still works
+        on real hardware so that alarms are always set before shutdown.
         """
         if self._available:
             return True
-        if self._dry_run or self._smbus2_missing:
+        if self._smbus2_missing:
             return False
         self._try_connect_i2c()
         return self._available
@@ -481,30 +483,47 @@ class PowerManager:
             logger.warning("Failed to send SYS_UP signal to Witty Pi: %s", e)
 
     def schedule_and_shutdown(self) -> None:
-        """Full shutdown: set next startup alarm → save state → poweroff."""
+        """Full shutdown: set next startup alarm → save state → poweroff.
+
+        Each step is wrapped independently so that a failure in alarm-setting
+        never prevents the actual poweroff from running.
+        """
         from config import get_config
         from database import get_db
 
-        # 1. Schedule next boot
-        self.set_startup_from_config()
+        # 1. Schedule next boot (non-fatal — Pi must always shut down cleanly)
+        try:
+            self.set_startup_from_config()
+        except Exception:
+            logger.exception(
+                "Failed to set startup alarm — Pi will shut down without next-boot alarm. "
+                "Check I2C connection and config."
+            )
 
         # 2. Set hardware low-voltage threshold
-        critical_v = get_config().get("battery.critical_voltage", 3.0)
-        self.set_low_voltage_threshold(critical_v)
+        try:
+            critical_v = get_config().get("battery.critical_voltage", 3.0)
+            self.set_low_voltage_threshold(critical_v)
+        except Exception:
+            logger.warning("Failed to set low-voltage threshold")
 
         # 3. Persist battery voltage in DB
-        voltage = self.read_input_voltage()
-        if voltage is not None:
-            get_db().set_state("last_battery_voltage", str(round(voltage, 2)))
-            logger.info("Battery voltage at shutdown: %.2fV", voltage)
+        try:
+            voltage = self.read_input_voltage()
+            if voltage is not None:
+                get_db().set_state("last_battery_voltage", str(round(voltage, 2)))
+                logger.info("Battery voltage at shutdown: %.2fV", voltage)
+        except Exception:
+            logger.warning("Failed to save battery voltage")
 
         # 4. Dry-run: skip actual poweroff (dev environment only)
         if self._dry_run:
             logger.info("Dry-run: would execute 'systemctl poweroff'")
             return
 
-        # 5. Poweroff — Witty Pi detects halt by monitoring the TXD (UART TX)
-        #    line going permanently LOW. No explicit GPIO signal needed from Pi.
+        # 5. Poweroff — always runs regardless of alarm-setting success.
+        #    Witty Pi detects halt by monitoring the TXD (UART TX) line going
+        #    permanently LOW. No explicit GPIO signal needed from Pi.
         logger.info("Initiating system poweroff...")
         subprocess.run(["sudo", "systemctl", "poweroff"], check=False)
 

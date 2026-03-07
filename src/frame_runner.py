@@ -77,7 +77,9 @@ def run_once(*, dry_run: bool = False) -> bool:
     selector = PhotoSelector(db, config)
     photo = selector.pick(sources)
     if photo is None:
-        logger.warning("No photos available to display")
+        logger.warning("No photos available — showing default image")
+        from status_display import show_default_image
+        show_default_image(dry_run=dry_run)
         return False
 
     logger.info("Selected: %s (id=%d, source=%s)", photo.display_name, photo.id, photo.source)
@@ -96,10 +98,13 @@ def run_once(*, dry_run: bool = False) -> bool:
         return False
 
     # 4. Show on display
-    if dry_run:
+    # display.simulate=true → PNG 저장 (하드웨어 미사용)
+    # display.simulate 미설정 시 dry_run 값으로 폴백 (--frame --dry-run 하위 호환)
+    simulate_display = config.get("display.simulate", dry_run)
+    if simulate_display:
         out_path = _PROJECT_ROOT / "debug_output.png"
         image.save(out_path)
-        logger.info("DRY RUN: saved processed image → %s", out_path)
+        logger.info("Display simulated: saved processed image → %s", out_path)
     else:
         try:
             display = get_display(config.display_model)

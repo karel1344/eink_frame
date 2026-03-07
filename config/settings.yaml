@@ -10,6 +10,7 @@ button:
 display:
   model: 7in3e
   rotation: 0
+  simulate: false
 image_processing:
   auto_rotate: true
   dithering: floyd_steinberg
