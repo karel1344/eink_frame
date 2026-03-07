@@ -43,8 +43,10 @@ photo_sources:
     enabled: true
     path: photos/local
 schedule:
+  mode: daily
   timezone: Asia/Seoul
   update_time: 06:00
+  interval_minutes: 1440
 storage:
   google_photos_max_mb: 1000
   local_photos_max_mb: 1000

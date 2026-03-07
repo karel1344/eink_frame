@@ -331,18 +331,25 @@ class PowerManager:
             logger.exception("Failed to sync RTC")
 
     def set_startup_from_config(self) -> None:
-        """Parse ``schedule.update_time`` / ``schedule.timezone`` from config,
-        compute the next alarm datetime (today or tomorrow), sync the RTC,
-        and set the startup alarm with an absolute day+time."""
-        from datetime import datetime, timedelta
-        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
+        """Dispatch to daily or interval startup alarm based on ``schedule.mode``."""
         from config import get_config
 
         # Sync RTC first so the ATtiny has accurate time to compare against
         self.sync_rtc()
 
         config = get_config()
+        mode = config.get("schedule.mode", "daily")
+
+        if mode == "interval":
+            self._set_startup_interval(config)
+        else:
+            self._set_startup_daily(config)
+
+    def _set_startup_daily(self, config) -> None:
+        """Set startup alarm for a fixed daily time (existing logic)."""
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
         update_time = config.update_time  # e.g. "06:00"
         timezone_str = config.get("schedule.timezone", "UTC")
 
@@ -352,16 +359,14 @@ class PowerManager:
         try:
             tz = ZoneInfo(timezone_str)
             now_local = datetime.now(tz)
-            # Build today's alarm in local time
             alarm_local = now_local.replace(
                 hour=local_hour, minute=local_minute, second=0, microsecond=0
             )
-            # If alarm has already passed today, schedule for tomorrow
             if alarm_local <= now_local:
                 alarm_local += timedelta(days=1)
             utc_alarm = alarm_local.astimezone(ZoneInfo("UTC"))
             logger.info(
-                "Startup alarm: %s %02d:%02d → UTC day=%02d %02d:%02d:%02d",
+                "Startup alarm (daily): %s %02d:%02d → UTC day=%02d %02d:%02d:%02d",
                 timezone_str, local_hour, local_minute,
                 utc_alarm.day, utc_alarm.hour, utc_alarm.minute, utc_alarm.second,
             )
@@ -376,6 +381,20 @@ class PowerManager:
                 utc_alarm += timedelta(days=1)
 
         self.set_startup_alarm(utc_alarm.hour, utc_alarm.minute, 0, utc_alarm.day)
+
+    def _set_startup_interval(self, config) -> None:
+        """Set startup alarm to now + N minutes."""
+        from datetime import datetime, timedelta, timezone
+
+        interval = int(config.get("schedule.interval_minutes", 60))
+        now_utc = datetime.now(timezone.utc)
+        utc_alarm = now_utc + timedelta(minutes=interval)
+
+        logger.info(
+            "Startup alarm (interval): +%d min → UTC day=%02d %02d:%02d:%02d",
+            interval, utc_alarm.day, utc_alarm.hour, utc_alarm.minute, utc_alarm.second,
+        )
+        self.set_startup_alarm(utc_alarm.hour, utc_alarm.minute, utc_alarm.second, utc_alarm.day)
 
     # ------------------------------------------------------------------
     # Public: shutdown alarm
@@ -491,30 +510,42 @@ class PowerManager:
         from config import get_config
         from database import get_db
 
-        # 1. Schedule next boot (non-fatal — Pi must always shut down cleanly)
-        try:
-            self.set_startup_from_config()
-        except Exception:
-            logger.exception(
-                "Failed to set startup alarm — Pi will shut down without next-boot alarm. "
-                "Check I2C connection and config."
-            )
+        critical_v = get_config().get("battery.critical_voltage", 3.0)
 
-        # 2. Set hardware low-voltage threshold
-        try:
-            critical_v = get_config().get("battery.critical_voltage", 3.0)
-            self.set_low_voltage_threshold(critical_v)
-        except Exception:
-            logger.warning("Failed to set low-voltage threshold")
-
-        # 3. Persist battery voltage in DB
+        # 1. Read battery voltage early (needed for alarm decision)
+        voltage = None
         try:
             voltage = self.read_input_voltage()
             if voltage is not None:
                 get_db().set_state("last_battery_voltage", str(round(voltage, 2)))
                 logger.info("Battery voltage at shutdown: %.2fV", voltage)
         except Exception:
-            logger.warning("Failed to save battery voltage")
+            logger.warning("Failed to read/save battery voltage")
+
+        # 2. Schedule next boot — or clear alarm if battery is critically low
+        if voltage is not None and voltage <= critical_v:
+            logger.warning(
+                "Battery critically low (%.2fV <= %.2fV) — clearing startup alarm to prevent reboot",
+                voltage, critical_v,
+            )
+            try:
+                self.clear_startup_alarm()
+            except Exception:
+                logger.warning("Failed to clear startup alarm")
+        else:
+            try:
+                self.set_startup_from_config()
+            except Exception:
+                logger.exception(
+                    "Failed to set startup alarm — Pi will shut down without next-boot alarm. "
+                    "Check I2C connection and config."
+                )
+
+        # 3. Set hardware low-voltage threshold
+        try:
+            self.set_low_voltage_threshold(critical_v)
+        except Exception:
+            logger.warning("Failed to set low-voltage threshold")
 
         # 4. Dry-run: skip actual poweroff (dev environment only)
         if self._dry_run:

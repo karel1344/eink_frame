@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ExifTags
+from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ExifTags
 
 logger = logging.getLogger(__name__)
 
@@ -305,10 +305,70 @@ def _draw_battery(
             x = img.width - icon.width - 8
             y = 8
             out.paste(icon, (x, y), icon)
-            return out.convert("RGB")
+            out = out.convert("RGB")
+            if state == "critical":
+                _draw_charge_label(out, x, y + icon.height, icon.width)
+            return out
 
     # Fallback: draw battery icon with Pillow
-    return _draw_battery_fallback(img, state)
+    out = _draw_battery_fallback(img, state)
+    if state == "critical":
+        margin = 8
+        bw, nub_w = 36, 4
+        icon_x = img.width - bw - nub_w - margin
+        icon_bottom = margin + 16
+        _draw_charge_label(out, icon_x, icon_bottom, bw + nub_w)
+    return out
+
+
+def _pick_contrast_color(img: Image.Image, region: tuple[int, int, int, int]) -> tuple[int, int, int]:
+    """Pick black or white text color based on average brightness of the region."""
+    # Clamp region to image bounds
+    x1 = max(0, region[0])
+    y1 = max(0, region[1])
+    x2 = min(img.width, region[2])
+    y2 = min(img.height, region[3])
+    if x2 <= x1 or y2 <= y1:
+        return (0, 0, 0)
+    crop = img.crop((x1, y1, x2, y2)).convert("L")
+    avg = sum(crop.getdata()) / max(1, crop.width * crop.height)
+    return (0, 0, 0) if avg > 128 else (255, 255, 255)
+
+
+def _draw_charge_label(
+    img: Image.Image,
+    icon_x: int,
+    icon_bottom: int,
+    icon_width: int,
+) -> None:
+    """Draw '충전 필요' text below the battery icon with contrast-aware color."""
+    draw = ImageDraw.Draw(img)
+    text = "충전 필요"
+    font_size = 12
+    font = _load_korean_font(font_size)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    tx = icon_x + (icon_width - tw) // 2
+    ty = icon_bottom + 2
+    # Determine text color from background region
+    color = _pick_contrast_color(img, (tx - 2, ty - 2, tx + tw + 2, ty + th + 2))
+    draw.text((tx, ty), text, fill=color, font=font)
+
+
+def _load_korean_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Try to load a Korean-capable font; fall back to default."""
+    candidates = [
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    ]
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except (OSError, IOError):
+            continue
+    return ImageFont.load_default()
 
 
 def _draw_battery_fallback(img: Image.Image, state: str) -> Image.Image:

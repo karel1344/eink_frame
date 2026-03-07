@@ -508,6 +508,34 @@
             opacity: 1;
         }
 
+        /* Select-to-delete mode */
+        .photo-grid.select-mode .photo-item { cursor: pointer; }
+        .photo-grid.select-mode .photo-crop,
+        .photo-grid.select-mode .photo-delete { display: none; }
+
+        .photo-check {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            background: rgba(0,0,0,0.35);
+            color: white;
+            opacity: 0;
+            transition: opacity 0.15s;
+            pointer-events: none;
+        }
+        .photo-item.selected .photo-check { opacity: 1; }
+        .photo-item.selected { outline: 3px solid #3498db; outline-offset: -3px; }
+
+        .select-delete-bar {
+            display: none;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .select-delete-bar.visible { display: flex; }
+
         .photo-item.uploading::after {
             content: '';
             position: absolute;
@@ -631,7 +659,10 @@
             <div class="card">
                 <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
                     <span>사진 <span id="photo-count" style="font-weight:400;color:#888;font-size:0.9rem;"></span></span>
-                    <button class="btn btn-primary" id="refresh-photos-btn" style="padding:6px 12px;font-size:0.85rem;">새로고침</button>
+                    <div style="display:flex;gap:6px;">
+                        <button class="btn btn-primary" id="refresh-photos-btn" style="padding:6px 12px;font-size:0.85rem;">새로고침</button>
+                        <button class="btn" id="select-mode-btn" style="padding:6px 12px;font-size:0.85rem;">선택 삭제</button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <div class="storage-bar-wrap">
@@ -641,6 +672,10 @@
 
                     <div id="photo-grid" class="photo-grid" style="margin-top:16px;"></div>
                     <div id="photos-empty" class="photos-empty hidden">사진이 없습니다. 위에서 업로드하세요.</div>
+                    <div class="select-delete-bar" id="select-delete-bar">
+                        <button class="btn btn-danger" id="delete-selected-btn" style="flex:1;">선택 삭제 (0)</button>
+                        <button class="btn" id="cancel-select-btn">취소</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -651,12 +686,27 @@
                 <div class="card-header">스케줄</div>
                 <div class="card-body">
                     <div class="form-group">
-                        <label>업데이트 시간</label>
-                        <input type="time" id="update-time" value="06:00" style="-webkit-appearance:none;appearance:none;">
+                        <label>스케줄 모드</label>
+                        <select id="schedule-mode">
+                            <option value="daily">매일 고정 시각</option>
+                            <option value="interval">주기 반복</option>
+                        </select>
                     </div>
-                    <div class="form-group">
-                        <label>시간대</label>
-                        <input type="text" id="timezone" placeholder="Asia/Seoul">
+                    <div id="daily-settings">
+                        <div class="form-group">
+                            <label>업데이트 시간</label>
+                            <input type="time" id="update-time" value="06:00" style="-webkit-appearance:none;appearance:none;">
+                        </div>
+                        <div class="form-group">
+                            <label>시간대</label>
+                            <input type="text" id="timezone" placeholder="Asia/Seoul">
+                        </div>
+                    </div>
+                    <div id="interval-settings" style="display:none;">
+                        <div class="form-group">
+                            <label>주기 (분)</label>
+                            <input type="number" id="interval-minutes" value="60" min="1" max="1440">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -947,6 +997,10 @@
             var wifiPassword = document.getElementById('wifi-password');
             var batteryStatus = document.getElementById('battery-status');
             var updateTime = document.getElementById('update-time');
+            var scheduleMode = document.getElementById('schedule-mode');
+            var dailySettings = document.getElementById('daily-settings');
+            var intervalSettings = document.getElementById('interval-settings');
+            var intervalMinutes = document.getElementById('interval-minutes');
             var selectionMode = document.getElementById('selection-mode');
             var timezone = document.getElementById('timezone');
             var avoidRepeats = document.getElementById('avoid-repeats');
@@ -997,6 +1051,14 @@
                 if (settings.schedule) {
                     if (updateTime) updateTime.value = settings.schedule.update_time || '06:00';
                     if (timezone) timezone.value = settings.schedule.timezone || 'Asia/Seoul';
+                    var mode = settings.schedule.mode || 'daily';
+                    if (scheduleMode) {
+                        scheduleMode.value = mode;
+                        var isInterval = mode === 'interval';
+                        if (dailySettings) dailySettings.style.display = isInterval ? 'none' : '';
+                        if (intervalSettings) intervalSettings.style.display = isInterval ? '' : 'none';
+                    }
+                    if (intervalMinutes) intervalMinutes.value = settings.schedule.interval_minutes || 60;
                 }
                 if (settings.photo_selection) {
                     if (selectionMode) selectionMode.value = settings.photo_selection.mode || 'random';
@@ -1130,8 +1192,9 @@
                             ? '<img src="' + src + '" alt="' + p.filename + '" loading="lazy">'
                             : '<div class="photo-placeholder">🖼</div>';
                         var safeFilename = p.filename.replace(/'/g, "\\'");
-                        html += '<div class="photo-item" id="photo-' + p.id + '" title="' + p.filename + '">';
+                        html += '<div class="photo-item" id="photo-' + p.id + '" data-id="' + p.id + '" title="' + p.filename + '">';
                         html += imgTag;
+                        html += '<div class="photo-check">✓</div>';
                         html += '<button class="photo-crop" onclick="openExistingCrop(' + p.id + ',\'' + safeFilename + '\')" title="크롭">✂</button>';
                         html += '<button class="photo-delete" onclick="deletePhoto(' + p.id + ',\'' + safeFilename + '\')" title="삭제">✕</button>';
                         html += '</div>';
@@ -1156,6 +1219,96 @@
                     }
                 }).catch(function() { alert('삭제 실패'); });
             }
+
+            // ── Select-to-delete mode ─────────────────────────────────
+            var selectMode = false;
+            var selectedIds = new Set();
+
+            var selectModeBtn = document.getElementById('select-mode-btn');
+            var cancelSelectBtn = document.getElementById('cancel-select-btn');
+            var deleteSelectedBtn = document.getElementById('delete-selected-btn');
+            var selectDeleteBar = document.getElementById('select-delete-bar');
+
+            function enterSelectMode() {
+                selectMode = true;
+                selectedIds.clear();
+                var grid = document.getElementById('photo-grid');
+                if (grid) grid.classList.add('select-mode');
+                if (selectDeleteBar) selectDeleteBar.classList.add('visible');
+                if (selectModeBtn) selectModeBtn.style.display = 'none';
+                updateDeleteCount();
+            }
+
+            function exitSelectMode() {
+                selectMode = false;
+                selectedIds.clear();
+                var grid = document.getElementById('photo-grid');
+                if (grid) grid.classList.remove('select-mode');
+                if (selectDeleteBar) selectDeleteBar.classList.remove('visible');
+                if (selectModeBtn) selectModeBtn.style.display = '';
+                var items = document.querySelectorAll('.photo-item.selected');
+                for (var i = 0; i < items.length; i++) items[i].classList.remove('selected');
+            }
+
+            function updateDeleteCount() {
+                if (deleteSelectedBtn) {
+                    deleteSelectedBtn.textContent = '선택 삭제 (' + selectedIds.size + ')';
+                    deleteSelectedBtn.disabled = selectedIds.size === 0;
+                }
+            }
+
+            function toggleSelectItem(el) {
+                var id = parseInt(el.getAttribute('data-id'), 10);
+                if (selectedIds.has(id)) {
+                    selectedIds.delete(id);
+                    el.classList.remove('selected');
+                } else {
+                    selectedIds.add(id);
+                    el.classList.add('selected');
+                }
+                updateDeleteCount();
+            }
+
+            if (selectModeBtn) selectModeBtn.addEventListener('click', enterSelectMode);
+            if (cancelSelectBtn) cancelSelectBtn.addEventListener('click', exitSelectMode);
+
+            if (deleteSelectedBtn) {
+                deleteSelectedBtn.addEventListener('click', function() {
+                    if (selectedIds.size === 0) return;
+                    if (!confirm(selectedIds.size + '장의 사진을 삭제하시겠습니까?')) return;
+                    var ids = Array.from(selectedIds);
+                    var done = 0;
+                    var fail = 0;
+                    ids.forEach(function(id) {
+                        fetch('/api/photos/' + id, { method: 'DELETE' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) { if (!data.success) fail++; })
+                            .catch(function() { fail++; })
+                            .finally(function() {
+                                done++;
+                                if (done === ids.length) {
+                                    exitSelectMode();
+                                    loadPhotos();
+                                    if (fail > 0) alert(fail + '장 삭제 실패');
+                                }
+                            });
+                    });
+                });
+            }
+
+            // Delegate click on photo-grid for select mode
+            (function() {
+                var grid = document.getElementById('photo-grid');
+                if (!grid) return;
+                grid.addEventListener('click', function(e) {
+                    if (!selectMode) return;
+                    var item = e.target.closest('.photo-item');
+                    if (!item) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleSelectItem(item);
+                }, true);
+            })();
 
             // ── Crop & Upload ──────────────────────────────────────────
             var cropperInstance = null;
@@ -1403,6 +1556,15 @@
                 });
             }
 
+            // Schedule mode toggle
+            if (scheduleMode) {
+                scheduleMode.addEventListener('change', function() {
+                    var isInterval = scheduleMode.value === 'interval';
+                    if (dailySettings) dailySettings.style.display = isInterval ? 'none' : '';
+                    if (intervalSettings) intervalSettings.style.display = isInterval ? '' : 'none';
+                });
+            }
+
             // Avoid repeats toggle
             if (avoidRepeats && repeatThresholdGroup) {
                 avoidRepeats.addEventListener('change', function() {
@@ -1415,8 +1577,10 @@
                 saveSettingsBtn.addEventListener('click', function() {
                     var payload = {
                         schedule: {
+                            mode: scheduleMode ? scheduleMode.value : 'daily',
                             update_time: updateTime ? updateTime.value : '06:00',
-                            timezone: timezone ? timezone.value : 'Asia/Seoul'
+                            timezone: timezone ? timezone.value : 'Asia/Seoul',
+                            interval_minutes: intervalMinutes ? parseInt(intervalMinutes.value) || 60 : 60
                         },
                         photo_selection: {
                             mode: selectionMode ? selectionMode.value : 'random',
