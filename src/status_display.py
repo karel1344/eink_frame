@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from PIL.Image import Image
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +130,20 @@ def show_default_image(dry_run: bool = False, model: Optional[str] = None,
         return False
 
 
-def _generate_ap_screen(ssid: str, ip: str, password: str, width: int, height: int) -> "Image.Image":
-    """AP 모드 안내용 E-Ink 이미지 생성 (RGB, width×height).
+def _generate_info_screen(
+    title: str,
+    info_lines: "list[tuple[str, str]]",
+    url: str,
+    width: int,
+    height: int,
+) -> "Image.Image":
+    """E-Ink 안내 화면 공통 생성기 (RGB, width×height).
+
+    Args:
+        title:      화면 상단 제목 텍스트.
+        info_lines: [(라벨, 값), ...] 순서대로 표시.
+        url:        QR 코드 및 URL 텍스트에 사용할 주소.
+        width/height: 디스플레이 픽셀 크기.
 
     레이아웃:
       - 가로 (landscape): 좌측 QR 코드 / 우측 텍스트
@@ -136,7 +151,6 @@ def _generate_ap_screen(ssid: str, ip: str, password: str, width: int, height: i
     """
     from PIL import Image, ImageDraw, ImageFont
 
-    url = f"http://{ip}"
     img  = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(img)
 
@@ -164,27 +178,27 @@ def _generate_ap_screen(ssid: str, ip: str, password: str, width: int, height: i
     pad = max(20, min(width, height) // 18)
 
     if is_landscape:
-        qr_size = min(height - 2 * pad, (width - 3 * pad) // 2)
-        qr_x    = pad
-        qr_y    = (height - qr_size) // 2
-        text_x  = 2 * pad + qr_size
-        text_w  = width - text_x - pad
+        qr_size  = min(height - 2 * pad, (width - 3 * pad) // 2)
+        qr_x     = pad
+        qr_y     = (height - qr_size) // 2
+        text_x   = 2 * pad + qr_size
+        text_w   = width - text_x - pad
         title_sz = max(24, height // 12)
-        ssid_sz  = max(20, height // 14)
+        val_sz   = max(20, height // 14)
         label_sz = max(14, height // 22)
         url_sz   = max(16, height // 16)
     else:
-        qr_size = min(width - 4 * pad, height // 3)
-        qr_x    = (width - qr_size) // 2
-        qr_y    = height - qr_size - 2 * pad
-        text_x  = pad
-        text_w  = width - 2 * pad
+        qr_size  = min(width - 4 * pad, height // 3)
+        qr_x     = (width - qr_size) // 2
+        qr_y     = height - qr_size - 2 * pad
+        text_x   = pad
+        text_w   = width - 2 * pad
         title_sz = max(36, width // 16)
-        ssid_sz  = max(30, width // 18)
+        val_sz   = max(30, width // 18)
         label_sz = max(22, width // 26)
         url_sz   = max(26, width // 22)
 
-    # QR 코드 생성
+    # QR 코드
     try:
         import qrcode as _qr_lib
         qr = _qr_lib.QRCode(
@@ -208,33 +222,28 @@ def _generate_ap_screen(ssid: str, ip: str, password: str, width: int, height: i
             outline=(0, 0, 0), width=2,
         )
 
-    # 텍스트 렌더링
+    # 텍스트
     fnt_title = load_font(title_sz)
-    fnt_ssid  = load_font(ssid_sz)
+    fnt_val   = load_font(val_sz)
     fnt_lbl   = load_font(label_sz)
     fnt_url   = load_font(url_sz)
 
-    BLUE  = (12, 84, 172)   # E-Ink 캘리브레이션 파란색
+    BLUE  = (12, 84, 172)
     GRAY  = (80, 80, 80)
     BLACK = (0, 0, 0)
 
     def put(y: int, text: str, font, fill) -> int:
-        """텍스트를 (text_x, y)에 그리고, 텍스트 하단 y 좌표 반환."""
         draw.text((text_x, y), text, font=font, fill=fill)
-        bb = draw.textbbox((text_x, y), text, font=font)
-        return bb[3]
+        return draw.textbbox((text_x, y), text, font=font)[3]
 
     y = pad
-    y = put(y, "Wi-Fi Setup", fnt_title, BLACK) + pad // 2
+    y = put(y, title, fnt_title, BLACK) + pad // 2
     draw.line([(text_x, y), (text_x + text_w, y)], fill=BLACK, width=2)
     y += pad
 
-    y = put(y, "SSID", fnt_lbl, GRAY) + 6
-    y = put(y, ssid, fnt_ssid, BLACK) + pad
-
-    if password:
-        y = put(y, "Password", fnt_lbl, GRAY) + 6
-        y = put(y, password, fnt_ssid, BLACK) + pad
+    for label, value in info_lines:
+        y = put(y, label, fnt_lbl, GRAY) + 6
+        y = put(y, value, fnt_val, BLACK) + pad
 
     y = put(y, "Web UI", fnt_lbl, GRAY) + 6
     put(y, url, fnt_url, BLUE)
@@ -242,23 +251,8 @@ def _generate_ap_screen(ssid: str, ip: str, password: str, width: int, height: i
     return img
 
 
-def show_ap_mode_screen(
-    ssid: str,
-    ip: str = "10.42.0.1",
-    password: str = "",
-    dry_run: bool = False,
-) -> bool:
-    """AP 모드 진입 시 E-Ink 화면에 SSID·URL·QR 코드 표시.
-
-    Args:
-        ssid:     AP Wi-Fi SSID (예: EinkFrame-A1B2).
-        ip:       AP IP 주소 (기본 10.42.0.1).
-        password: AP 비밀번호. 빈 문자열이면 오픈 네트워크.
-        dry_run:  True면 하드웨어 없이 debug_ap_screen.png로 저장.
-
-    Returns:
-        표시 성공 여부.
-    """
+def _show_info_screen(image: "Image.Image", debug_name: str, dry_run: bool) -> bool:
+    """생성된 안내 이미지를 E-Ink에 표시하는 공통 헬퍼."""
     try:
         from config import get_config
         from display import get_display
@@ -267,23 +261,89 @@ def show_ap_mode_screen(
         model  = config.display_model
         simulate_display = config.get("display.simulate", dry_run)
 
-        display = get_display(model)
-        image   = _generate_ap_screen(ssid, ip, password, display.width, display.height)
-
         if simulate_display:
-            out = _PROJECT_ROOT / "debug_ap_screen.png"
+            out = _PROJECT_ROOT / debug_name
             image.save(out)
-            logger.info("AP 화면 시뮬레이션 → %s", out)
+            logger.info("화면 시뮬레이션 → %s", out)
             return True
 
+        display = get_display(model)
         display.init()
         display.show(image)
         display.sleep()
-        logger.info("AP 화면 표시 완료 — SSID=%s URL=http://%s", ssid, ip)
         return True
 
     except Exception:
+        logger.exception("E-Ink 화면 표시 실패")
+        return False
+
+
+def show_ap_mode_screen(
+    ssid: str,
+    ip: str = "10.42.0.1",
+    password: str = "",
+    dry_run: bool = False,
+) -> bool:
+    """AP 모드 진입 시 E-Ink 화면에 SSID·URL·QR 코드 표시."""
+    try:
+        from config import get_config
+        from display import get_display
+
+        display = get_display(get_config().display_model)
+        info_lines = [("SSID", ssid)]
+        if password:
+            info_lines.append(("Password", password))
+        image = _generate_info_screen(
+            title="Wi-Fi Setup",
+            info_lines=info_lines,
+            url=f"http://{ip}",
+            width=display.width,
+            height=display.height,
+        )
+        ok = _show_info_screen(image, "debug_ap_screen.png", dry_run)
+        if ok:
+            logger.info("AP 화면 표시 완료 — SSID=%s URL=http://%s", ssid, ip)
+        return ok
+
+    except Exception:
         logger.exception("AP 화면 표시 실패")
+        return False
+
+
+def show_web_ui_screen(
+    wifi_ssid: str,
+    ip: str,
+    port: int = 80,
+    dry_run: bool = False,
+) -> bool:
+    """WiFi 연결 후 Web UI 진입 시 E-Ink 화면에 접속 정보 표시.
+
+    Args:
+        wifi_ssid: 연결된 Wi-Fi SSID.
+        ip:        라즈베리파이 IP 주소.
+        port:      웹 서버 포트 (80이면 URL에서 생략).
+        dry_run:   True면 하드웨어 없이 debug_webui_screen.png로 저장.
+    """
+    try:
+        from config import get_config
+        from display import get_display
+
+        display = get_display(get_config().display_model)
+        url = f"http://{ip}" if port == 80 else f"http://{ip}:{port}"
+        image = _generate_info_screen(
+            title="Web UI 접속",
+            info_lines=[("Wi-Fi", wifi_ssid)],
+            url=url,
+            width=display.width,
+            height=display.height,
+        )
+        ok = _show_info_screen(image, "debug_webui_screen.png", dry_run)
+        if ok:
+            logger.info("Web UI 화면 표시 완료 — SSID=%s URL=%s", wifi_ssid, url)
+        return ok
+
+    except Exception:
+        logger.exception("Web UI 화면 표시 실패")
         return False
 
 

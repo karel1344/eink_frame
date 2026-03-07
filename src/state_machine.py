@@ -300,15 +300,30 @@ class StateMachine:
         config = get_config()
         port = config.get("web_ui.port", 80)
 
-        # Log IP for user
+        # Log IP and show E-Ink info screen
         try:
             from wifi.manager import get_wifi_manager
             status = get_wifi_manager().get_status()
-            ip = status.ip_address or "unknown"
+            ip        = status.ip_address or "unknown"
+            wifi_ssid = status.ssid or ""
             logger.info("WEB_UI_MODE: access at http://%s:%d", ip, port)
-            # TODO: status_display.show_web_ui_info(ip, port)
         except Exception:
-            pass
+            ip        = "unknown"
+            wifi_ssid = ""
+
+        _ip       = ip
+        _ssid     = wifi_ssid
+        _port     = port
+        _dry      = self._dry_run
+
+        def _show_webui_screen() -> None:
+            try:
+                from status_display import show_web_ui_screen
+                show_web_ui_screen(wifi_ssid=_ssid, ip=_ip, port=_port, dry_run=_dry)
+            except Exception:
+                logger.exception("Web UI 화면 표시 실패")
+
+        threading.Thread(target=_show_webui_screen, daemon=True, name="webui-screen").start()
 
         # Start web server
         self._start_web_server(port=port)
