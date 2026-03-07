@@ -55,10 +55,10 @@ web_ui:
   ap_safe_timeout: 60
   ap_ssid_prefix: EinkFrame
   captive_portal_enabled: true
-  no_connection_timeout: 300
+  no_connection_timeout: 600
   port: 80
   recovery_enabled: true
-  timeout: 600
+  timeout: 1800
 wifi:
   connection_timeout: 30
   enabled: true
