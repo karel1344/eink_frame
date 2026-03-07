@@ -515,14 +515,13 @@
         .ip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
         .ip-ctrl label { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.85rem; font-weight: 500; }
         .ip-val { color: #3498db; font-weight: 600; }
-        .ip-preview-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+        .ip-preview-row { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
         .ip-preview-box { position: relative; aspect-ratio: 800/480; background: #eee; border-radius: 4px; overflow: hidden; }
         .ip-preview-box img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: none; }
         .ip-preview-box img.loaded { display: block; }
         .ip-preview-lbl { font-size: 0.72rem; color: #888; text-align: center; margin-bottom: 3px; }
         .ip-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(255,255,255,0.7); }
         .ip-overlay.show { display: flex; }
-        @media (max-width: 600px) { .ip-preview-row { grid-template-columns: 1fr; } }
         .ip-stats { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 14px; font-size: 0.75rem; }
         .ip-stat { display: flex; align-items: center; gap: 3px; }
         .ip-swatch { width: 9px; height: 9px; border-radius: 2px; border: 1px solid #ccc; flex-shrink: 0; }
