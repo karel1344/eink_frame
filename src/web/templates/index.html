@@ -484,6 +484,30 @@
             opacity: 1;
         }
 
+        .photo-crop {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.55);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .photo-item:hover .photo-crop {
+            opacity: 1;
+        }
+
         .photo-item.uploading::after {
             content: '';
             position: absolute;
@@ -1105,9 +1129,11 @@
                         var imgTag = src
                             ? '<img src="' + src + '" alt="' + p.filename + '" loading="lazy">'
                             : '<div class="photo-placeholder">🖼</div>';
+                        var safeFilename = p.filename.replace(/'/g, "\\'");
                         html += '<div class="photo-item" id="photo-' + p.id + '" title="' + p.filename + '">';
                         html += imgTag;
-                        html += '<button class="photo-delete" onclick="deletePhoto(' + p.id + ',\'' + p.filename.replace(/'/g, "\\'") + '\')" title="삭제">✕</button>';
+                        html += '<button class="photo-crop" onclick="openExistingCrop(' + p.id + ',\'' + safeFilename + '\')" title="크롭">✂</button>';
+                        html += '<button class="photo-delete" onclick="deletePhoto(' + p.id + ',\'' + safeFilename + '\')" title="삭제">✕</button>';
                         html += '</div>';
                     }
                     grid.innerHTML = html;
@@ -1135,6 +1161,8 @@
             var cropperInstance = null;
             var cropQueue = [];
             var cropCurrentFile = null;
+            var cropExistingPhotoId = null;
+            var cropExistingFilename = null;
             var DISPLAY_DIMS = { '7in3e': {w:800,h:480}, '13in3e': {w:1200,h:1600} };
 
             function getDisplayAspect() {
@@ -1189,7 +1217,44 @@
             function closeCropModal() {
                 document.getElementById('crop-modal').classList.remove('visible');
                 if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+                cropExistingPhotoId = null;
+                cropExistingFilename = null;
+                var skipBtn = document.getElementById('crop-skip-btn');
+                var confirmBtn = document.getElementById('crop-confirm-btn');
+                if (skipBtn) skipBtn.style.display = '';
+                if (confirmBtn) confirmBtn.textContent = '업로드';
             }
+
+            window.openExistingCrop = function openExistingCrop(photoId, filename) {
+                cropExistingPhotoId = photoId;
+                cropExistingFilename = filename;
+                var modal = document.getElementById('crop-modal');
+                var img = document.getElementById('crop-image');
+                if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+
+                var aspect = getDisplayAspect();
+                document.getElementById('crop-info').textContent =
+                    '디스플레이 비율: ' + aspect.w + ' × ' + aspect.h + 'px  ·  ' + filename;
+                document.getElementById('crop-file-counter').textContent = '';
+
+                var skipBtn = document.getElementById('crop-skip-btn');
+                var confirmBtn = document.getElementById('crop-confirm-btn');
+                if (skipBtn) skipBtn.style.display = 'none';
+                if (confirmBtn) confirmBtn.textContent = '저장';
+
+                img.onload = function() {
+                    cropperInstance = new Cropper(img, {
+                        aspectRatio: aspect.ratio,
+                        viewMode: 0,
+                        autoCropArea: 1.0,
+                        dragMode: 'move',
+                        guides: true,
+                        toggleDragModeOnDblclick: false,
+                    });
+                };
+                img.src = '/api/photos/' + photoId + '/original?t=' + Date.now();
+                modal.classList.add('visible');
+            };
 
             function doUpload(file, blob) {
                 var statusEl = document.getElementById('upload-status');
@@ -1222,12 +1287,31 @@
 
             if (cropConfirmBtn) {
                 cropConfirmBtn.addEventListener('click', function() {
-                    if (!cropperInstance || !cropCurrentFile) return;
-                    var file = cropCurrentFile;
+                    if (!cropperInstance) return;
                     var canvas = cropperInstance.getCroppedCanvas({ fillColor: '#fff' });
-                    closeCropModal();
-                    canvas.toBlob(function(blob) { doUpload(file, blob); },
-                        file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.92);
+
+                    if (cropExistingPhotoId !== null) {
+                        // 기존 사진 크롭 저장
+                        var photoId = cropExistingPhotoId;
+                        var filename = cropExistingFilename;
+                        closeCropModal();
+                        canvas.toBlob(function(blob) {
+                            var fd = new FormData();
+                            fd.append('file', blob, filename || 'crop.jpg');
+                            fetch('/api/photos/' + photoId + '/crop', { method: 'POST', body: fd })
+                                .then(function(r) { return r.json(); })
+                                .then(function(data) {
+                                    if (!data.success) alert('크롭 저장 실패: ' + (data.detail || data.message));
+                                    loadPhotos();
+                                }).catch(function() { alert('크롭 저장 실패'); loadPhotos(); });
+                        }, 'image/jpeg', 0.92);
+                    } else if (cropCurrentFile) {
+                        // 신규 업로드 크롭
+                        var file = cropCurrentFile;
+                        closeCropModal();
+                        canvas.toBlob(function(blob) { doUpload(file, blob); },
+                            file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.92);
+                    }
                 });
             }
 

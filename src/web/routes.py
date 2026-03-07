@@ -739,6 +739,56 @@ async def get_thumbnail(photo_id: int):
     return FileResponse(thumb_path, media_type="image/jpeg")
 
 
+@router.get("/api/photos/{photo_id}/original")
+async def get_original_photo(photo_id: int):
+    """Serve the original full-size photo file."""
+    source = _get_local_source()
+    photo = source.get_photo(photo_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    file_path = Path(photo.file_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, media_type=photo.mime_type or "image/jpeg")
+
+
+@router.post("/api/photos/{photo_id}/crop")
+async def crop_photo(photo_id: int, file: UploadFile = File(...)) -> ApiResponse:
+    """Overwrite a photo with a cropped version and regenerate its thumbnail."""
+    import io
+    from PIL import Image as PILImage
+    from database import get_db
+
+    source = _get_local_source()
+    photo = source.get_photo(photo_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    try:
+        content = await file.read()
+        img = PILImage.open(io.BytesIO(content))
+        file_path = Path(photo.file_path)
+        fmt = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG"}.get(
+            file_path.suffix.lower(), "JPEG"
+        )
+        img.save(str(file_path), format=fmt)
+
+        db = get_db()
+        if photo.thumbnail_path:
+            Path(photo.thumbnail_path).unlink(missing_ok=True)
+        db.update_photo(
+            photo_id,
+            width=img.width,
+            height=img.height,
+            file_size=file_path.stat().st_size,
+            thumbnail_path=None,
+        )
+        source.ensure_thumbnail(photo_id)
+        return ApiResponse(success=True, message="Cropped successfully")
+    except Exception as e:
+        logger.exception("Crop failed for photo %d: %s", photo_id, e)
+        raise HTTPException(status_code=500, detail="Crop failed")
+
+
 # ============================================================================
 # Image Preview API
 # ============================================================================
