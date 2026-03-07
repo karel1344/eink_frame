@@ -1252,6 +1252,10 @@
                         toggleDragModeOnDblclick: false,
                     });
                 };
+                img.onerror = function() {
+                    closeCropModal();
+                    alert('사진을 불러올 수 없습니다.');
+                };
                 img.src = '/api/photos/' + photoId + '/original?t=' + Date.now();
                 modal.classList.add('visible');
             };

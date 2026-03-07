@@ -741,7 +741,15 @@ async def get_thumbnail(photo_id: int):
 
 @router.get("/api/photos/{photo_id}/original")
 async def get_original_photo(photo_id: int):
-    """Serve the original full-size photo file."""
+    """Serve the photo as a browser-compatible JPEG for the crop UI.
+
+    Converts any format (incl. HEIC) to JPEG and downscales to at most
+    2000px on the long side so Cropper.js stays responsive.
+    """
+    import io
+    from PIL import Image as PILImage
+    from fastapi.responses import Response
+
     source = _get_local_source()
     photo = source.get_photo(photo_id)
     if photo is None:
@@ -749,7 +757,17 @@ async def get_original_photo(photo_id: int):
     file_path = Path(photo.file_path)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path, media_type=photo.mime_type or "image/jpeg")
+    try:
+        img = PILImage.open(str(file_path))
+        img = img.convert("RGB")
+        img.thumbnail((2000, 2000), PILImage.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        buf.seek(0)
+        return Response(content=buf.read(), media_type="image/jpeg")
+    except Exception as e:
+        logger.exception("Failed to read photo %d for crop: %s", photo_id, e)
+        raise HTTPException(status_code=500, detail="Failed to read photo")
 
 
 @router.post("/api/photos/{photo_id}/crop")
