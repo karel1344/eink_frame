@@ -218,15 +218,20 @@ class EPD:
         # fully-saturated values.  Using real colors improves dithering because
         # Floyd-Steinberg error diffusion is computed against what the panel
         # actually reproduces, not what we wish it would.
+        # Index order must match panel color codes: 0=Black 1=White 2=Yellow
+        # 3=Red 4=unused(→Black) 5=Blue 6=Green.
         pal_image = Image.new("P", (1, 1))
+        # Hybrid palette: ideal Black/White to preserve grayscale tonal range
+        # (midpoint stays at 128, grays dither correctly), calibrated values for
+        # the four chromatic inks where the display deviates most from ideal.
         pal_image.putpalette(
-            (35,  28,  45,   # 0: Black
-             184, 202, 198,  # 1: White
-             207, 212,   4,  # 2: Yellow
-             150,  28,  23,  # 3: Red
-              35,  28,  45,  # 4: unused slot (same as Black → quantizer picks index 0 first)
-              12,  84, 172,  # 5: Blue
-              29,  90,  72)  # 6: Green
+            (  0,   0,   0,  # 0: Black  — ideal (preserves grayscale midpoint)
+             255, 255, 255,  # 1: White  — ideal (preserves grayscale midpoint)
+             207, 212,   4,  # 2: Yellow — calibrated (measured on panel)
+             150,  28,  23,  # 3: Red    — calibrated
+               0,   0,   0,  # 4: unused slot (same as Black)
+              12,  84, 172,  # 5: Blue   — calibrated
+              29,  90,  72)  # 6: Green  — calibrated
             + (0, 0, 0) * 249
         )
 

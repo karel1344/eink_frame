@@ -15,9 +15,9 @@ image_processing:
   auto_rotate: true
   dithering: floyd_steinberg
   fill_mode: fit
-  contrast: 1.2
-  saturation: 1.5
-  sharpness: 1.3
+  contrast: 1.1
+  saturation: 1.8
+  sharpness: 0.9
 logging:
   level: INFO
   max_files: 5
