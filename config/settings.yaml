@@ -1,7 +1,7 @@
 dry_run: false
 battery:
-  critical_voltage: 3.0
-  low_voltage_threshold: 3.3
+  critical_voltage: 3.2
+  low_voltage_threshold: 3.5
   show_indicator: true
 button:
   gpio_pin: 27
@@ -54,7 +54,7 @@ storage:
 web_ui:
   ap_execution_mode: normal
   ap_password: ''
-  ap_safe_timeout: 60
+  ap_safe_timeout: 180
   ap_ssid_prefix: EinkFrame
   captive_portal_enabled: true
   no_connection_timeout: 600
