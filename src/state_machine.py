@@ -190,7 +190,7 @@ class StateMachine:
 
             # 6. Decide next state
             if not config.wifi_enabled:
-                logger.info("WiFi disabled → offline photo update")
+                logger.info("WiFi disabled → skip WiFi connect")
                 self.post_event(Event.WIFI_FAIL)
             else:
                 self.post_event(Event.INIT_COMPLETE)
@@ -203,8 +203,12 @@ class StateMachine:
         if event == Event.INIT_COMPLETE:
             self._enter_wifi_connect()
         elif event == Event.WIFI_FAIL:
-            # WiFi disabled → skip to photo update
-            self._enter_photo_update()
+            # WiFi disabled
+            if self._web_ui_requested:
+                logger.info("Button held + WiFi disabled → AP_MODE")
+                self._enter_ap_mode()
+            else:
+                self._enter_photo_update()
         elif event == Event.SHUTDOWN_REQUEST:
             self._enter_shutdown()
         elif event == Event.ERROR_OCCURRED:
@@ -409,8 +413,8 @@ class StateMachine:
 
         threading.Thread(target=_show_ap_screen, daemon=True, name="ap-screen").start()
 
-        # Start web server on port 80
-        self._start_web_server(port=80)
+        # Start web server on port 8000 (nftables forwards 80 → 8000)
+        self._start_web_server(port=8000)
 
         # Button re-press → exit AP mode
         self._setup_button_for_exit(lambda: self.post_event(Event.AP_TIMEOUT))
