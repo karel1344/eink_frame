@@ -718,20 +718,8 @@
                         <label>선택 모드</label>
                         <select id="selection-mode">
                             <option value="random">무작위</option>
-                            <option value="sequential">순서대로</option>
-                            <option value="date_based">날짜 기준</option>
+                            <option value="sequential">추가된 순</option>
                         </select>
-                    </div>
-                    <div class="form-group toggle-group">
-                        <label>반복 방지</label>
-                        <label class="toggle">
-                            <input type="checkbox" id="avoid-repeats" checked>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                    <div class="form-group" id="repeat-threshold-group">
-                        <label>반복 제한 수 <small style="color:#888">(장)</small></label>
-                        <input type="number" id="repeat-threshold" min="5" max="200" value="30">
                     </div>
                 </div>
             </div>
@@ -761,19 +749,6 @@
                             <option value="180">180°</option>
                             <option value="270">270°</option>
                         </select>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">배터리</div>
-                <div class="card-body">
-                    <div class="form-group toggle-group">
-                        <label>배터리 아이콘 표시</label>
-                        <label class="toggle">
-                            <input type="checkbox" id="battery-indicator" checked>
-                            <span class="toggle-slider"></span>
-                        </label>
                     </div>
                 </div>
             </div>
@@ -1003,13 +978,9 @@
             var intervalMinutes = document.getElementById('interval-minutes');
             var selectionMode = document.getElementById('selection-mode');
             var timezone = document.getElementById('timezone');
-            var avoidRepeats = document.getElementById('avoid-repeats');
-            var repeatThreshold = document.getElementById('repeat-threshold');
-            var repeatThresholdGroup = document.getElementById('repeat-threshold-group');
             var displayModel = document.getElementById('display-model');
             var fillMode = document.getElementById('fill-mode');
             var displayRotation = document.getElementById('display-rotation');
-            var batteryIndicator = document.getElementById('battery-indicator');
             var localStorageLimit = document.getElementById('local-storage-limit');
             var saveSettingsBtn = document.getElementById('save-settings-btn');
             var saveShutdownBtn = document.getElementById('save-shutdown-btn');
@@ -1062,10 +1033,6 @@
                 }
                 if (settings.photo_selection) {
                     if (selectionMode) selectionMode.value = settings.photo_selection.mode || 'random';
-                    var ar = settings.photo_selection.avoid_repeats !== false;
-                    if (avoidRepeats) avoidRepeats.checked = ar;
-                    if (repeatThreshold) repeatThreshold.value = settings.photo_selection.repeat_threshold || 30;
-                    if (repeatThresholdGroup) repeatThresholdGroup.style.display = ar ? 'block' : 'none';
                 }
                 if (settings.display) {
                     if (displayModel) displayModel.value = settings.display.model || '7in3e';
@@ -1076,9 +1043,6 @@
                 }
                 if (settings.image_processing) {
                     if (fillMode) fillMode.value = settings.image_processing.fill_mode || 'fit';
-                }
-                if (settings.battery) {
-                    if (batteryIndicator) batteryIndicator.checked = settings.battery.show_indicator !== false;
                 }
                 // Initialize image processing sliders from saved settings
                 initIpSliders(settings);
@@ -1565,13 +1529,6 @@
                 });
             }
 
-            // Avoid repeats toggle
-            if (avoidRepeats && repeatThresholdGroup) {
-                avoidRepeats.addEventListener('change', function() {
-                    repeatThresholdGroup.style.display = avoidRepeats.checked ? 'block' : 'none';
-                });
-            }
-
             // Save Settings
             if (saveSettingsBtn) {
                 saveSettingsBtn.addEventListener('click', function() {
@@ -1583,9 +1540,7 @@
                             interval_minutes: intervalMinutes ? parseInt(intervalMinutes.value) || 60 : 60
                         },
                         photo_selection: {
-                            mode: selectionMode ? selectionMode.value : 'random',
-                            avoid_repeats: avoidRepeats ? avoidRepeats.checked : true,
-                            repeat_threshold: repeatThreshold ? parseInt(repeatThreshold.value) || 30 : 30
+                            mode: selectionMode ? selectionMode.value : 'random'
                         },
                         display: {
                             model: displayModel ? displayModel.value : '7in3e',
@@ -1593,9 +1548,6 @@
                         },
                         image_processing: {
                             fill_mode: fillMode ? fillMode.value : 'fit'
-                        },
-                        battery: {
-                            show_indicator: batteryIndicator ? batteryIndicator.checked : true
                         },
                         storage: {
                             local_photos_max_mb: localStorageLimit ? parseInt(localStorageLimit.value) || 1000 : 1000

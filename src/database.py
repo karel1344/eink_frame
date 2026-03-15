@@ -304,38 +304,18 @@ class Database:
                 (ts, ts, photo_id),
             )
 
-    def get_recent_photo_ids(self, limit: int = 30) -> list[int]:
-        """Return photo ids shown in the most recent *limit* displays (newest first).
-
-        Uses MAX(displayed_at) per photo so that a photo shown multiple times
-        is ranked by its latest display time, not an arbitrary earlier one.
-        """
+    def get_all_shown_photo_ids(self) -> list[int]:
+        """Return all distinct photo IDs that have been displayed."""
         with self._cursor() as (conn, cur):
             rows = cur.execute(
-                """
-                SELECT photo_id FROM display_history
-                GROUP BY photo_id
-                ORDER BY MAX(displayed_at) DESC
-                LIMIT ?
-                """,
-                (limit,),
+                "SELECT DISTINCT photo_id FROM display_history"
             ).fetchall()
             return [r["photo_id"] for r in rows]
 
-    def trim_history(self, keep: int = 30) -> None:
-        """Keep only the most recent *keep* display history entries."""
+    def clear_display_history(self) -> None:
+        """Delete all display history entries (start a new cycle)."""
         with self._cursor() as (conn, cur):
-            cur.execute(
-                """
-                DELETE FROM display_history
-                WHERE id NOT IN (
-                    SELECT id FROM display_history
-                    ORDER BY displayed_at DESC
-                    LIMIT ?
-                )
-                """,
-                (keep,),
-            )
+            cur.execute("DELETE FROM display_history")
 
     # ------------------------------------------------------------------
     # State (key-value)

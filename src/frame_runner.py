@@ -117,7 +117,6 @@ def run_once(*, dry_run: bool = False) -> bool:
 
     # 5. Record in DB
     db.record_display(photo.id)
-    db.trim_history(keep=int(config.get("photo_selection.repeat_threshold", 30)))
     db.last_displayed_photo_id = photo.id
 
     logger.info("Done — displayed: %s", photo.display_name)

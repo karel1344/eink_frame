@@ -15,11 +15,12 @@ class PhotoSelector:
     """Selects which photo to display next.
 
     Supports two modes (configured via photo_selection.mode):
-      - 'random'     : random choice from eligible photos
-      - 'sequential' : oldest last_displayed first (never-shown photos first)
+      - 'random'     : shuffle-deck (show every photo once before repeating)
+      - 'sequential' : added_at ascending (oldest added photo first)
 
-    Repeat avoidance: photos shown in the last *repeat_threshold* displays
-    are excluded from the candidate pool (unless the pool would be empty).
+    Repeat avoidance: all previously shown photos are excluded from the
+    candidate pool. When every photo has been shown, the history is cleared
+    and the cycle restarts.
     """
 
     def __init__(self, db, config):
@@ -30,10 +31,6 @@ class PhotoSelector:
         """
         self._db = db
         self._mode = config.get("photo_selection.mode", "random")
-        self._avoid_repeats = config.get("photo_selection.avoid_repeats", True)
-        self._repeat_threshold = int(
-            config.get("photo_selection.repeat_threshold", 30)
-        )
 
     def pick(self, sources: list) -> Optional[object]:
         """Select one photo from the given sources.
@@ -63,27 +60,28 @@ class PhotoSelector:
     # ------------------------------------------------------------------
 
     def _filter_candidates(self, all_photos: list) -> list:
-        """Remove recently displayed photos from the candidate pool.
+        """Exclude all previously shown photos from the candidate pool.
 
-        If filtering would leave an empty pool, falls back to all photos
-        so the display never gets stuck with nothing to show.
+        When every photo has been shown (candidates empty), clears the
+        display history so the full cycle restarts.
         """
-        if not self._avoid_repeats or len(all_photos) <= 1:
+        if len(all_photos) <= 1:
             return all_photos
 
-        recent_ids = set(self._db.get_recent_photo_ids(self._repeat_threshold))
-        candidates = [p for p in all_photos if p.id not in recent_ids]
+        shown_ids = set(self._db.get_all_shown_photo_ids())
+        candidates = [p for p in all_photos if p.id not in shown_ids]
 
         if not candidates:
-            logger.debug(
-                "All %d photos were recently shown; resetting repeat window",
+            logger.info(
+                "All %d photos have been shown; clearing history for new cycle",
                 len(all_photos),
             )
+            self._db.clear_display_history()
             return all_photos
 
         logger.debug(
-            "%d candidates after excluding %d recent photos",
-            len(candidates), len(recent_ids),
+            "%d candidates after excluding %d shown photos",
+            len(candidates), len(shown_ids),
         )
         return candidates
 
@@ -149,11 +147,7 @@ class PhotoSelector:
 
     @staticmethod
     def _pick_sequential(candidates: list) -> object:
-        """Return the photo with the oldest last_displayed time.
-
-        Photos that have never been shown (last_displayed is None) are
-        treated as oldest and always come first.
-        """
+        """Return the photo that was added earliest (added_at ascending)."""
         _epoch = datetime.min
-        candidates.sort(key=lambda p: p.last_displayed or _epoch)
+        candidates.sort(key=lambda p: p.added_at or _epoch)
         return candidates[0]
