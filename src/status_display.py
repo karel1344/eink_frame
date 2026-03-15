@@ -354,6 +354,17 @@ def _generate_info_screen(
     return img
 
 
+def _apply_display_rotation(image: "Image.Image", rotation: int) -> "Image.Image":
+    """디스플레이 물리 회전에 맞게 이미지를 회전."""
+    if rotation == 90:
+        return image.rotate(-90, expand=True)
+    elif rotation == 180:
+        return image.rotate(180, expand=True)
+    elif rotation == 270:
+        return image.rotate(90, expand=True)
+    return image
+
+
 def _show_info_screen(image: "Image.Image", debug_name: str, dry_run: bool) -> bool:
     """생성된 안내 이미지를 E-Ink에 표시하는 공통 헬퍼."""
     try:
@@ -362,7 +373,11 @@ def _show_info_screen(image: "Image.Image", debug_name: str, dry_run: bool) -> b
 
         config = get_config()
         model  = config.display_model
+        rotation = int(config.get("display.rotation", 0))
         simulate_display = config.get("display.simulate", dry_run)
+
+        # 물리 회전 보정
+        image = _apply_display_rotation(image, rotation)
 
         if simulate_display:
             out = _PROJECT_ROOT / debug_name
@@ -392,7 +407,15 @@ def show_ap_mode_screen(
         from config import get_config
         from display import get_display
 
-        display = get_display(get_config().display_model)
+        config = get_config()
+        display = get_display(config.display_model)
+        rotation = int(config.get("display.rotation", 0))
+
+        # 회전 보정된 콘텐츠 캔버스 크기
+        w, h = display.width, display.height
+        if rotation in (90, 270):
+            w, h = h, w
+
         info_lines = [("SSID", ssid)]
         if password:
             info_lines.append(("Password", password))
@@ -400,8 +423,8 @@ def show_ap_mode_screen(
             title="Wi-Fi Setup",
             info_lines=info_lines,
             url=f"http://{ip}",
-            width=display.width,
-            height=display.height,
+            width=w,
+            height=h,
         )
         ok = _show_info_screen(image, "debug_ap_screen.png", dry_run)
         if ok:
@@ -431,14 +454,22 @@ def show_web_ui_screen(
         from config import get_config
         from display import get_display
 
-        display = get_display(get_config().display_model)
+        config = get_config()
+        display = get_display(config.display_model)
+        rotation = int(config.get("display.rotation", 0))
+
+        # 회전 보정된 콘텐츠 캔버스 크기
+        w, h = display.width, display.height
+        if rotation in (90, 270):
+            w, h = h, w
+
         url = f"http://{ip}" if port == 80 else f"http://{ip}:{port}"
         image = _generate_info_screen(
             title="Web UI 접속",
             info_lines=[("Wi-Fi", wifi_ssid)],
             url=url,
-            width=display.width,
-            height=display.height,
+            width=w,
+            height=h,
         )
         ok = _show_info_screen(image, "debug_webui_screen.png", dry_run)
         if ok:

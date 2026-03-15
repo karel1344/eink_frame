@@ -136,6 +136,9 @@ class WifiManager:
                     conn = line.split(":", 1)[1] if ":" in line else ""
                     # Skip if it's AP mode connection
                     if conn and conn not in ("--", "Hotspot", "EinkFrame-Open"):
+                        # netplan uses "netplan-wlan0-{SSID}" as connection name
+                        if conn.startswith("netplan-wlan0-"):
+                            conn = conn[len("netplan-wlan0-"):]
                         ssid = conn
                 elif line.startswith("IP4.ADDRESS"):
                     addr = line.split(":", 1)[1] if ":" in line else ""
