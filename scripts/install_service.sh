@@ -59,11 +59,11 @@ fi
 echo "Upgrading pip..."
 "$PROJECT_DIR/venv/bin/pip" install --upgrade pip
 
-# Install dependencies from requirements.txt (lgpio skipped — provided by system)
+# Install dependencies from requirements.txt (lgpio excluded — provided by system package)
 REQUIREMENTS_FILE="$PROJECT_DIR/requirements.txt"
 if [ -f "$REQUIREMENTS_FILE" ]; then
     echo "Installing dependencies from requirements.txt..."
-    "$PROJECT_DIR/venv/bin/pip" install -r "$REQUIREMENTS_FILE" --ignore-installed lgpio
+    grep -v '^\s*lgpio' "$REQUIREMENTS_FILE" | "$PROJECT_DIR/venv/bin/pip" install -r /dev/stdin
     echo "Dependencies installed"
 else
     echo "Warning: requirements.txt not found at $REQUIREMENTS_FILE"

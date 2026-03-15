@@ -6,14 +6,14 @@
 |----------|--------|
 | 인프라/설정 | 100% |
 | WiFi/AP 모드 | 80% |
-| 웹 UI | 80% |
+| 웹 UI | 90% |
 | 사진 소스 | 75% |
 | 이미지 처리 | 100% |
 | 디스플레이 드라이버 | 100% |
 | 전원 관리 | 100% |
-| 상태머신 | 95% |
+| 상태머신 | 100% |
 | OTA 업데이트 | 0% |
-| 에셋/스크립트 | 50% |
+| 에셋/스크립트 | 60% |
 | 저장소/로깅 | 0% |
 
 ---
@@ -33,7 +33,9 @@
 
 - [x] **einkframe.py** - 최상위 실행 파일
   - `--dev` 플래그로 개발 모드 (포트 8000, reload=True)
-  - 플래그 없으면 프로덕션 모드
+  - `--frame` 플래그로 사진 표시만 실행
+  - `--dry-run` 플래그로 디버그 출력 (debug_output.png)
+  - 플래그 없으면 프로덕션 모드 (상태머신)
 
 - [x] **startup.py** - 시작 시퀀스
   - WiFi 연결 시도
@@ -49,9 +51,10 @@
   - 동시성 처리 (`timeout=10, check_same_thread=False`)
   - 버전 기반 마이그레이션 (`schema_version` 테이블)
   - `photos` 테이블 (source, filename, google_id, title, 해상도, mime_type, taken_at, file_size, is_deleted, last_accessed)
-  - `display_history` 테이블 (반복 방지용, 최근 30장)
+  - `display_history` 테이블 (셔플 덱 사이클 추적)
   - `state` key-value 테이블
   - `last_displayed_photo_id` / `last_sync_token` 프로퍼티
+  - `get_all_shown_photo_ids()` / `clear_display_history()` — 사이클 리셋
   - LRU 조회 (`get_lru_photos`), 소프트 삭제 (`mark_deleted`)
   - `google_id` 조건부 UNIQUE 인덱스
 
@@ -79,7 +82,7 @@
   - AAAA 쿼리 빈 응답
 
 - [x] **button.py** - 물리 버튼 핸들러
-  - gpiozero 기반 GPIO 입력
+  - gpiozero 기반 GPIO 입력 (GPIO 27)
   - 짧은 누름/길게 누름 콜백
   - 시뮬레이션 메서드
 
@@ -92,7 +95,7 @@
 
 ---
 
-## Phase 3: 웹 UI - 70% 완료
+## Phase 3: 웹 UI - 90% 완료
 
 ### 완료 ✅
 
@@ -100,11 +103,12 @@
   - 라우터 마운트
   - 정적 파일 서빙
   - 템플릿 설정
+  - 미들웨어 (요청 로깅, idle 타임아웃 리셋)
 
 - [x] **web/routes.py** - API 라우트
-  - `GET /api/status` - 시스템 상태 (스텁)
+  - `GET /api/status` - 시스템 상태 (배터리, WiFi, 상태머신)
   - `GET /api/settings` - 설정 조회
-  - `PUT /api/settings` - 설정 변경 (schedule, photo_selection, display, image_processing, battery, wifi)
+  - `PUT /api/settings` - 설정 변경 (schedule, photo_selection, display, image_processing, wifi, storage)
   - `GET /api/wifi/scan` - WiFi 스캔
   - `GET /api/wifi/status` - WiFi 상태
   - `POST /api/wifi/connect` - WiFi 연결
@@ -112,17 +116,24 @@
   - `POST /api/ap/start` - AP 시작
   - `POST /api/ap/stop` - AP 중지
   - `POST /api/system/apply` - 설정 적용 후 WiFi 연결
-  - `POST /api/system/shutdown` - 종료 (스텁)
+  - `POST /api/system/shutdown` - 종료
+  - `POST /api/system/photo-update` - 사진 업데이트 실행
   - `GET /api/photos` - 사진 목록
-  - `POST /api/photos/upload` - 사진 업로드
+  - `POST /api/photos/upload` - 사진 업로드 (스트리밍, 최대 20MB)
   - `DELETE /api/photos/{id}` - 사진 삭제
   - `GET /api/photos/{id}/thumbnail` - 썸네일
+  - `GET /api/photos/{id}/original` - 원본 사진
+  - `POST /api/photos/{id}/crop` - 사진 크롭
+  - `POST /api/image-preview/random` - 랜덤 사진 미리보기
+  - `POST /api/image-preview/process` - 이미지 처리 미리보기
   - Captive portal 감지 URL 응답
 
 - [x] **web/templates/index.html** - 메인 UI
   - WiFi 설정 탭 (스캔, 연결, Apply & Connect)
-  - 사진 갤러리 탭 (업로드, 썸네일 그리드, 삭제)
-  - 설정 탭 (스케줄, 사진 선택, 디스플레이 모델/회전, 이미지 처리, 저장소 용량, 배터리)
+  - 사진 갤러리 탭 (업로드, 썸네일 그리드, 삭제, 크롭)
+  - 설정 탭 (스케줄 모드/시간, 사진 선택, 디스플레이 모델/회전, 이미지 처리 파라미터, 저장소 용량)
+  - 시스템 탭 (상태 표시, 사진 업데이트, 종료)
+  - 이미지 처리 미리보기 (실시간 파라미터 조정)
 
 - [x] **web/templates/captive.html** - 캡티브 포털 랜딩
   - AP 접속 안내
@@ -155,8 +166,9 @@
   - 지원 포맷: JPEG, PNG, HEIC (pillow-heif)
 
 - [x] **photo_selector.py** - 사진 선택 로직
-  - random / sequential 모드
-  - 반복 방지 (최근 N장 제외, 기본 30장)
+  - random 모드: 셔플 덱 (모든 사진을 한 번씩 보여준 후 사이클 리셋)
+  - sequential 모드: added_at 기준 오름차순 (추가된 순)
+  - 모든 사진이 표시되면 display_history 클리어 후 새 사이클 시작
   - 모든 소스 통합 선택 (local + 미래의 google 소스)
 
 - [x] **frame_runner.py** - 사진 표시 루프
@@ -185,8 +197,10 @@
   - 디스플레이 해상도 리사이즈
   - EXIF 기반 자동 회전
   - fit/fill 모드 (letterbox / crop)
+  - 6색 Floyd-Steinberg 디더링
+  - 조정 파라미터: brightness, contrast, saturation, gamma, sharpness, warmth
   - 배터리 아이콘 오버레이 (우측 상단)
-    - 낮음(3.0~3.3V) / 긴급(<3.0V) 상태만 표시
+    - 낮음 / 긴급 상태만 표시
     - PNG 아이콘 우선, 없으면 Pillow 직접 드로잉
   - 디스플레이 물리 회전 보정 (90/270도 시 캔버스 치환)
   - `from_config()` 클래스 메서드
@@ -231,7 +245,7 @@
 
 ---
 
-## Phase 8: 상태머신 - 95% 완료
+## Phase 8: 상태머신 - 100% 완료
 
 ### 완료 ✅
 
@@ -248,21 +262,21 @@
   - platform.system() != "Linux" 자동 dry_run
   - mode_info 프로퍼티 (웹 API 상태 노출용)
 
-### 미완료 ❌
-
 - [x] **버튼 재누름 이벤트 연결** (AP_MODE/WEB_UI_MODE 중)
-  - _setup_button_for_exit() / _clear_button_callback() 헬퍼 추가
+  - _setup_button_for_exit() / _clear_button_callback() 헬퍼
   - AP_MODE 진입 시 재누름 → AP_TIMEOUT 이벤트 포스팅
   - WEB_UI_MODE 진입 시 재누름 → WEB_UI_TIMEOUT 이벤트 포스팅
   - 모드 종료 시 콜백 클리어
 
 - [x] **이전 사진 복원 로직 (구조)**
-  - _restore_last_photo() 헬퍼 추가: DB last_displayed_photo_id 조회
+  - _restore_last_photo() 헬퍼: DB last_displayed_photo_id 조회
   - AP_TIMEOUT / WEB_UI_TIMEOUT 종료 경로에서 호출
-  - 실제 디스플레이 출력은 TODO (status_display.py 구현 이후 연동)
+  - 실제 디스플레이 출력은 status_display.py 구현 이후 연동
 
 - [x] **ERROR → AP_MODE 복구 경로**
   - _enter_error() → _enter_ap_mode() 로 변경 완료
+
+### 미완료 ❌
 
 - [ ] **status_display.py** - E-ink 상태 표시
   - AP 모드 안내 화면 (SSID, IP, 접속 방법 텍스트)
@@ -294,20 +308,20 @@
 
 ---
 
-## Phase 10: 에셋 및 스크립트 - 50% 완료
+## Phase 10: 에셋 및 스크립트 - 60% 완료
 
 ### 완료 ✅
 
 - [x] **assets/icons/battery_low.png** - 38×20px RGBA, 주황 배터리 아이콘
 - [x] **assets/icons/battery_critical.png** - 38×20px RGBA, 빨간 X 배터리 아이콘
-- [x] **scripts/install_service.sh** - systemd 서비스 동적 생성 및 설치
-- [x] **scripts/install.sh** - 전체 설치 스크립트
-- [x] **scripts/setup_wittypi.sh** - Witty Pi 설정 스크립트
+- [x] **scripts/install_service.sh** - 시스템 패키지, venv, 의존성, systemd 서비스 자동 설치
+- [x] **scripts/install_recovery.sh** - AP 복구 서비스 설치
+- [x] **scripts/ap_recovery.sh** - AP 모드 크래시 복구 스크립트
+- [x] **scripts/preview_web.py** - 웹 UI 개발 프리뷰 서버
 
 ### 미완료 ❌
 
 - [ ] **assets/default.png** - 종료 시 표시할 디폴트 이미지 (전원 꺼질 때)
-- [ ] **scripts/wittypi_schedule.sh** - Witty Pi 스케줄 설정 (런타임 호출용)
 
 ---
 
@@ -316,8 +330,8 @@
 ### 미완료 ❌
 
 - [ ] **저장소 용량 관리**
-  - Google Photos 최대 용량 제한 (기본 500MB)
-  - 로컬 업로드 최대 용량 제한 (기본 500MB)
+  - Google Photos 최대 용량 제한 (기본 1000MB)
+  - 로컬 업로드 최대 용량 제한 (기본 1000MB)
   - 용량 초과 시 LRU 삭제
   - 미리 선정할 사진 수 (prefetch_count)
 
@@ -328,13 +342,19 @@
 
 ---
 
-## Phase 12: 통합 및 테스트 - 0% 완료
+## Phase 12: 통합 및 테스트 - 30% 완료
+
+### 완료 ✅
+
+- [x] test_database.py — DB 작업, 마이그레이션, 사진 관리
+- [x] test_local_photo_source.py — LocalPhotoSource 파일 동기화, 업로드
+- [x] test_processor_visual.py — 이미지 처리 출력 검증
+- [x] test_state_machine.py — 상태 전이, 이벤트 처리
 
 ### 미완료 ❌
 
 - [ ] 전체 부팅 시퀀스 테스트
 - [ ] AP 모드 → WiFi 전환 테스트
-- [ ] 사진 업데이트 플로우 테스트
 - [ ] 배터리 부족 시나리오 테스트
 - [ ] 에러 복구 테스트
 - [ ] OTA 업데이트 테스트
@@ -344,20 +364,17 @@
 ## 다음 구현 순서 (권장)
 
 ### 높음 (핵심)
-1. ~~**웹 UI 설정 탭**~~ ✅ 완료
-2. ~~**사진 표시 루프**~~ ✅ 완료 (`frame_runner.py`, `photo_selector.py`)
-3. **power_manager.py** — Witty Pi 배터리/스케줄
-4. **state_machine.py** — 전체 흐름 제어
+1. **status_display.py** — E-ink 상태 화면 (AP/WEB_UI 모드 안내)
+2. **photo_source/google_photos.py** — Google Photos OAuth + Delta Sync
 
 ### 중간 (완성도)
-5. **photo_source/google_photos.py** — Google Photos
-6. **status_display.py** — E-ink 상태 화면
-7. **assets/default.png** — 종료 시 화면
+3. **assets/default.png** — 종료 시 화면
+4. **저장소 용량 관리** — LRU 삭제 로직
+5. **로그 로테이션** — RotatingFileHandler 설정
 
 ### 낮음 (선택)
-8. **OTA 업데이트**
-9. **Captive Portal 팝업 수정**
-10. **로그 로테이션**
+6. **OTA 업데이트**
+7. **Captive Portal 팝업 수정**
 
 ---
 
@@ -365,17 +382,16 @@
 
 - image_processor.py ✅
 - photo_source/local.py ✅
-- 웹 UI (갤러리, 설정) ← 지금 여기
+- 웹 UI (갤러리, 설정, 크롭, 이미지 프리뷰) ✅
 - photo_source/google_photos.py
-- state_machine.py (DRY_RUN 모드)
+- state_machine.py (DRY_RUN 모드) ✅
 - OTA 버전 비교 로직
 
 Pi 필요:
 - display 드라이버 (하드웨어 SPI)
 - power_manager.py (I2C)
-- Witty Pi 스케줄 스크립트
 - 전체 통합 테스트
 
 ---
 
-*마지막 업데이트: 2026-03-05 (Phase 8 95% 완료: 버튼 재누름 연결, 이전 사진 복원 구조, ERROR→AP_MODE 수정)*
+*마지막 업데이트: 2026-03-15*
