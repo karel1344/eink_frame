@@ -286,7 +286,11 @@ class StateMachine:
         elif event == Event.WIFI_SUCCESS_WEB_UI:
             self._enter_web_ui_mode()
         elif event == Event.WIFI_FAIL:
-            self._enter_ap_mode()
+            if self._web_ui_requested:
+                self._enter_ap_mode()
+            else:
+                logger.info("WiFi failed, no button → offline photo update")
+                self._enter_photo_update()
         elif event == Event.SHUTDOWN_REQUEST:
             self._enter_shutdown()
         elif event == Event.ERROR_OCCURRED:
