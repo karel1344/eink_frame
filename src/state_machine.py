@@ -403,14 +403,12 @@ class StateMachine:
             self._cancel_timeout()
             self._clear_button_callback()
             self._stop_web_server()
-            self._restore_last_photo()
-            self._enter_shutdown()
+            self._enter_photo_update()
         elif event == Event.SHUTDOWN_REQUEST:
             self._cancel_timeout()
             self._clear_button_callback()
             self._stop_web_server()
-            self._restore_last_photo()
-            self._enter_shutdown()
+            self._enter_photo_update()
         elif event == Event.PHOTO_UPDATE_REQUEST:
             self._cancel_timeout()
             self._clear_button_callback()
@@ -475,23 +473,26 @@ class StateMachine:
 
     def _on_ap_mode(self, event: Event) -> None:
         if event == Event.AP_TIMEOUT:
+            self._cancel_timeout()
             self._clear_button_callback()
             self._stop_web_server()
             self._stop_ap()
-            self._restore_last_photo()
-            self._enter_shutdown()
+            self._enter_photo_update()
         elif event == Event.WIFI_SUCCESS:
             # WiFi connected via web UI → stop AP → photo update
+            self._cancel_timeout()
             self._clear_button_callback()
             self._stop_web_server()
             self._stop_ap()
             self._enter_photo_update()
         elif event == Event.SHUTDOWN_REQUEST:
+            self._cancel_timeout()
             self._clear_button_callback()
             self._stop_web_server()
             self._stop_ap()
-            self._enter_shutdown()
+            self._enter_photo_update()
         elif event == Event.PHOTO_UPDATE_REQUEST:
+            self._cancel_timeout()
             self._clear_button_callback()
             self._stop_web_server()
             self._stop_ap()
