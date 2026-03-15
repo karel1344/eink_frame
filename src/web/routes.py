@@ -20,6 +20,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _notify_activity() -> None:
+    """사용자 동작 시 idle 타임아웃 리셋."""
+    try:
+        from state_machine import get_state_machine
+        sm = get_state_machine()
+        if sm:
+            sm.notify_web_activity()
+    except Exception:
+        pass
+
+
 # ============================================================================
 # Pydantic Models
 # ============================================================================
@@ -164,6 +175,7 @@ async def update_settings(settings: SettingsUpdate) -> ApiResponse:
         except Exception as e:
             logger.warning("Failed to apply startup alarm to Witty Pi: %s", e)
 
+    _notify_activity()
     return ApiResponse(success=True, message="Settings saved")
 
 
@@ -233,6 +245,7 @@ async def connect_wifi(request: WifiConnectRequest) -> ApiResponse:
     success = wifi.connect(request.ssid, request.password)
 
     if success:
+        _notify_activity()
         return ApiResponse(success=True, message=f"Connected to {request.ssid}")
     else:
         return ApiResponse(success=False, message=f"Failed to connect to {request.ssid}")
@@ -700,6 +713,7 @@ async def upload_photo(file: UploadFile = File(...)) -> ApiResponse:
     source = _get_local_source()
     try:
         photo = source.save_upload(file.filename or "upload.jpg", file.file)
+        _notify_activity()
         return ApiResponse(
             success=True,
             message=f"Uploaded {photo.filename}",
@@ -726,6 +740,7 @@ async def delete_photo(photo_id: int) -> ApiResponse:
     if photo is None:
         raise HTTPException(status_code=404, detail="Photo not found")
     source.delete_photo(photo_id)
+    _notify_activity()
     return ApiResponse(success=True, message=f"Deleted photo {photo_id}")
 
 
@@ -783,6 +798,7 @@ async def crop_photo(photo_id: int, file: UploadFile = File(...)) -> ApiResponse
             thumbnail_path=None,
         )
         source.ensure_thumbnail(photo_id)
+        _notify_activity()
         return ApiResponse(success=True, message="Cropped successfully")
     except Exception as e:
         logger.exception("Crop failed for photo %d: %s", photo_id, e)

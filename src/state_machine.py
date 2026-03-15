@@ -115,22 +115,42 @@ class StateMachine:
         self.post_event(Event.SHUTDOWN_REQUEST)
 
     def notify_web_activity(self) -> None:
-        """웹 요청이 들어올 때마다 호출. WEB_UI_MODE에서 idle 타임아웃을 리셋.
+        """사용자의 의미 있는 웹 동작 시 호출. idle 타임아웃을 리셋.
 
-        - 첫 번째 접속: 300s no-connection 타이머 → 600s idle 타이머로 전환
-        - 이후 매 요청: 600s idle 타이머 리셋
+        동작 예: 사진 업로드/삭제/크롭, 설정 변경, WiFi 연결 등
+        단순 페이지 로드나 조회 API는 해당하지 않음.
+
+        타임아웃 구조:
+          - 접속 전: no_connection_timeout (WEB_UI) / ap_safe_timeout (AP)
+          - 접속 후: timeout (idle) — 이 메서드로 리셋
         """
-        if self._state != State.WEB_UI_MODE:
+        if self._state not in (State.WEB_UI_MODE, State.AP_MODE):
             return
+
         try:
             from config import get_config
-            idle_timeout = get_config().get("web_ui.timeout", 600)
+            idle_timeout = get_config().get("web_ui.timeout", 1800)
         except Exception:
-            idle_timeout = 600
+            idle_timeout = 1800
+
+        timeout_event = (
+            Event.WEB_UI_TIMEOUT if self._state == State.WEB_UI_MODE
+            else Event.AP_TIMEOUT
+        )
+
         if not self._web_activity_seen:
             self._web_activity_seen = True
-            logger.info("Web UI activity detected — switching to %ds idle timeout", idle_timeout)
-        self._start_timeout(idle_timeout, Event.WEB_UI_TIMEOUT)
+            logger.info("Web activity detected — switching to %ds idle timeout", idle_timeout)
+            # AP 모드: AP 매니저 자체 watchdog 비활성화 (상태머신으로 통일)
+            if self._state == State.AP_MODE:
+                try:
+                    from wifi.ap_mode import get_ap_manager
+                    get_ap_manager()._cancel_timeout_watchdog()
+                except Exception:
+                    pass
+
+        self._start_timeout(idle_timeout, timeout_event)
+        logger.debug("Idle timeout reset: %ds → %s", idle_timeout, timeout_event.name)
 
     # ------------------------------------------------------------------
     # State transition
@@ -336,11 +356,10 @@ class StateMachine:
         # Start web server
         self._start_web_server(port=port)
 
-        # Dual timeout:
-        #   - 접속 없음: 300s 후 WEB_UI_TIMEOUT
-        #   - 접속 있음: API 호출 시마다 600s 리셋 (notify_web_activity 참고)
+        # no_connection_timeout: 접속이 없으면 자동 종료
+        # 접속 후에는 notify_web_activity()가 timeout(idle)으로 전환
         self._web_activity_seen = False
-        no_conn_timeout = config.get("web_ui.no_connection_timeout", 300)
+        no_conn_timeout = config.get("web_ui.no_connection_timeout", 600)
         if no_conn_timeout > 0:
             self._start_timeout(no_conn_timeout, Event.WEB_UI_TIMEOUT)
             logger.info("WEB_UI no-connection timeout: %ds", no_conn_timeout)
@@ -381,20 +400,26 @@ class StateMachine:
         self._set_state(State.AP_MODE)
         self._web_ui_requested = False
 
+        from config import get_config
         from wifi.ap_mode import get_ap_manager
         ap = get_ap_manager()
 
-        # Start AP if not already running
+        # Start AP if not already running (disable AP manager's own timeout —
+        # state machine manages all timeouts via _start_timeout)
         if not ap.is_active:
-            # Wire our event callback BEFORE starting (so timeout uses it)
-            ap._on_timeout = lambda: self.post_event(Event.AP_TIMEOUT)
+            ap._on_timeout = lambda: None  # no-op; state machine handles timeout
+            ap._timeout = 0  # disable AP manager watchdog
             ap.start()
         else:
-            # AP already running (shouldn't happen, but handle gracefully)
-            # Replace timeout callback and restart watchdog
-            ap._on_timeout = lambda: self.post_event(Event.AP_TIMEOUT)
             ap._cancel_timeout_watchdog()
-            ap._start_timeout_watchdog()
+
+        # ap_safe_timeout: 접속이 없으면 자동 종료
+        # 접속 후에는 notify_web_activity()가 timeout(idle)으로 전환
+        self._web_activity_seen = False
+        ap_no_conn_timeout = get_config().get("web_ui.ap_safe_timeout", 180)
+        if ap_no_conn_timeout > 0:
+            self._start_timeout(ap_no_conn_timeout, Event.AP_TIMEOUT)
+            logger.info("AP no-connection timeout: %ds", ap_no_conn_timeout)
 
         logger.info("AP_MODE: SSID=%s", ap.ssid)
 
