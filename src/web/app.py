@@ -37,6 +37,18 @@ async def log_all_requests(request: Request, call_next):
     host = request.headers.get("host", "unknown")
     logger.info(f"HTTP Request: {request.method} {request.url.path} (Host: {host}, Client: {request.client.host if request.client else 'unknown'})")
     response = await call_next(request)
+
+    # 첫 접속 감지: no_connection 타이머 → idle 타이머 전환
+    path = request.url.path
+    if path == "/" or path.startswith("/api/"):
+        try:
+            from state_machine import get_state_machine
+            sm = get_state_machine()
+            if sm:
+                sm.notify_web_connection()
+        except Exception:
+            pass
+
     return response
 
 

@@ -502,10 +502,14 @@ class PowerManager:
             logger.warning("Failed to send SYS_UP signal to Witty Pi: %s", e)
 
     def schedule_and_shutdown(self) -> None:
-        """Full shutdown: set next startup alarm → save state → poweroff.
+        """Full shutdown: save state → set next startup alarm → poweroff.
 
         Each step is wrapped independently so that a failure in alarm-setting
         never prevents the actual poweroff from running.
+
+        Alarm is set as late as possible (just before poweroff) so that
+        interval mode calculates "now + N minutes" from the actual shutdown
+        moment, not from an earlier point in the boot cycle.
         """
         from config import get_config
         from database import get_db
@@ -522,7 +526,15 @@ class PowerManager:
         except Exception:
             logger.warning("Failed to read/save battery voltage")
 
-        # 2. Schedule next boot — or clear alarm if battery is critically low
+        # 2. Set hardware low-voltage threshold
+        try:
+            self.set_low_voltage_threshold(critical_v)
+        except Exception:
+            logger.warning("Failed to set low-voltage threshold")
+
+        # 3. Schedule next boot — set as late as possible so interval mode
+        #    calculates "now + N min" from just before poweroff.
+        #    Or clear alarm if battery is critically low.
         if voltage is not None and voltage <= critical_v:
             logger.warning(
                 "Battery critically low (%.2fV <= %.2fV) — clearing startup alarm to prevent reboot",
@@ -540,12 +552,6 @@ class PowerManager:
                     "Failed to set startup alarm — Pi will shut down without next-boot alarm. "
                     "Check I2C connection and config."
                 )
-
-        # 3. Set hardware low-voltage threshold
-        try:
-            self.set_low_voltage_threshold(critical_v)
-        except Exception:
-            logger.warning("Failed to set low-voltage threshold")
 
         # 4. Dry-run: skip actual poweroff (dev environment only)
         if self._dry_run:

@@ -114,18 +114,18 @@ class StateMachine:
         self._running = False
         self.post_event(Event.SHUTDOWN_REQUEST)
 
-    def notify_web_activity(self) -> None:
-        """사용자의 의미 있는 웹 동작 시 호출. idle 타임아웃을 리셋.
+    def notify_web_connection(self) -> None:
+        """웹 페이지/API 접속 시 호출. no_connection 타이머를 idle 타이머로 전환.
 
-        동작 예: 사진 업로드/삭제/크롭, 설정 변경, WiFi 연결 등
-        단순 페이지 로드나 조회 API는 해당하지 않음.
-
-        타임아웃 구조:
-          - 접속 전: no_connection_timeout (WEB_UI) / ap_safe_timeout (AP)
-          - 접속 후: timeout (idle) — 이 메서드로 리셋
+        첫 접속 시에만 타이머를 전환하고, 이후에는 아무 것도 하지 않음.
+        idle 타이머 리셋은 notify_web_activity()가 담당.
         """
         if self._state not in (State.WEB_UI_MODE, State.AP_MODE):
             return
+        if self._web_activity_seen:
+            return  # 이미 idle 타이머로 전환됨
+
+        self._web_activity_seen = True
 
         try:
             from config import get_config
@@ -138,16 +138,41 @@ class StateMachine:
             else Event.AP_TIMEOUT
         )
 
+        logger.info("Web connection detected — switching to %ds idle timeout", idle_timeout)
+
+        # AP 모드: AP 매니저 자체 watchdog 비활성화 (상태머신으로 통일)
+        if self._state == State.AP_MODE:
+            try:
+                from wifi.ap_mode import get_ap_manager
+                get_ap_manager()._cancel_timeout_watchdog()
+            except Exception:
+                pass
+
+        self._start_timeout(idle_timeout, timeout_event)
+
+    def notify_web_activity(self) -> None:
+        """사용자의 의미 있는 웹 동작 시 호출. idle 타임아웃을 리셋.
+
+        동작 예: 사진 업로드/삭제/크롭, 설정 변경, WiFi 연결 등
+        단순 페이지 로드나 조회 API는 해당하지 않음.
+        """
+        if self._state not in (State.WEB_UI_MODE, State.AP_MODE):
+            return
+
+        # 아직 접속 전이면 접속 감지 먼저
         if not self._web_activity_seen:
-            self._web_activity_seen = True
-            logger.info("Web activity detected — switching to %ds idle timeout", idle_timeout)
-            # AP 모드: AP 매니저 자체 watchdog 비활성화 (상태머신으로 통일)
-            if self._state == State.AP_MODE:
-                try:
-                    from wifi.ap_mode import get_ap_manager
-                    get_ap_manager()._cancel_timeout_watchdog()
-                except Exception:
-                    pass
+            self.notify_web_connection()
+
+        try:
+            from config import get_config
+            idle_timeout = get_config().get("web_ui.timeout", 1800)
+        except Exception:
+            idle_timeout = 1800
+
+        timeout_event = (
+            Event.WEB_UI_TIMEOUT if self._state == State.WEB_UI_MODE
+            else Event.AP_TIMEOUT
+        )
 
         self._start_timeout(idle_timeout, timeout_event)
         logger.debug("Idle timeout reset: %ds → %s", idle_timeout, timeout_event.name)
