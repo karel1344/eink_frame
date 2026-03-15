@@ -38,6 +38,14 @@ if ! grep -q "^dtparam=i2c_arm=on" /boot/firmware/config.txt 2>/dev/null && \
     echo "I2C enabled (reboot required for first-time setup)"
 fi
 
+# Enable SPI if not already enabled
+if ! grep -q "^dtparam=spi=on" /boot/firmware/config.txt 2>/dev/null && \
+   ! grep -q "^dtparam=spi=on" /boot/config.txt 2>/dev/null; then
+    echo "Enabling SPI in /boot/firmware/config.txt..."
+    echo "dtparam=spi=on" >> /boot/firmware/config.txt
+    echo "SPI enabled (reboot required for first-time setup)"
+fi
+
 # Add lgpio system package path to venv so pip-built lgpio isn't needed
 SYSTEM_PKGS_PATH="/usr/lib/python3/dist-packages"
 PTH_FILE="$PROJECT_DIR/venv/lib/python3.$(python3 -c 'import sys; print(sys.version_info.minor)')/site-packages/system.pth"
